@@ -1,0 +1,34 @@
+{
+  "name": "tutanota-cli",
+  "version": "0.1.0",
+  "description": "CLI to authenticate with and export mail from Tutanota",
+  "type": "module",
+  "main": "dist/cli.js",
+  "bin": {
+    "tutanota-cli": "./dist/cli.js"
+  },
+  "scripts": {
+    "build": "tsc",
+    "start": "node dist/cli.js",
+    "auth:check": "node dist/cli.js auth check"
+  },
+  "keywords": ["tutanota", "tuta", "cli", "export", "email"],
+  "license": "GPL-3.0",
+  "engines": {
+    "node": ">=18"
+  },
+  "dependencies": {
+    "@tutao/tutanota-crypto": "327.260210.0",
+    "@tutao/tutanota-utils": "327.260210.0",
+    "commander": "^12.0.0",
+    "dotenv": "^16.4.5",
+    "argon2": "^0.44.0",
+    "read": "^1.0.7",
+    "undici": "^7.11.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "@types/read": "^0.0.30",
+    "typescript": "^5.6.0"
+  }
+}
