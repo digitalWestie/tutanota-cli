@@ -14,6 +14,7 @@ import {
   normalizeCreateSessionReturn,
   normalizeSaltReturn,
 } from "./types.js";
+import type { AesKey } from "./kdf.js";
 import { buildAuthVerifier, deriveUserPassphraseKey, saltToUint8Array } from "./kdf.js";
 
 const GENERATED_ID_BYTES_LENGTH = 9;
@@ -23,6 +24,8 @@ export interface LoginResult {
   accessToken: string;
   userId: string;
   sessionId: [string, string];
+  /** Present when login was done with password in this run; needed for decryption. Never persisted. */
+  userPassphraseKey?: AesKey;
 }
 
 /**
@@ -81,7 +84,26 @@ export async function login(
     accessToken: sessionRes.accessToken,
     userId: sessionRes.user,
     sessionId,
+    userPassphraseKey,
   };
+}
+
+/**
+ * Derive user passphrase key for an existing session (e.g. when we have stored session but need to decrypt).
+ * Fetches salt from the server and derives the key. Use when a command needs decryption and the user did not just log in.
+ */
+export async function getPassphraseKeyForSession(
+  baseUrl: string,
+  email: string,
+  password: string
+): Promise<AesKey> {
+  const saltReq = buildSaltDataRequest(email);
+  const saltResRaw = await http.get<Record<string, unknown>>(baseUrl, "/rest/sys/saltservice", {
+    body: saltReq,
+  });
+  const saltRes = normalizeSaltReturn(saltResRaw);
+  const salt = saltToUint8Array(saltRes.salt);
+  return deriveUserPassphraseKey(password, salt, String(saltRes.kdfVersion));
 }
 
 /**

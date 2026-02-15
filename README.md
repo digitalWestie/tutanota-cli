@@ -3,6 +3,9 @@
 ℹ️ *This tool is not affiliated or endorsed by Tuta GmbH in any way.*
 
 A CLI to authenticate with [Tutanota](https://tuta.com) and (in future) export mail.
+
+This CLI was developed based on the official client repository [tutao/tutanota](https://github.com/tutao/tutanota) at version ...., commit .....
+
 ## Requirements
 
 - Node.js 18+

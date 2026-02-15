@@ -10,6 +10,10 @@ const USER_AGENT = "Tutanota-CLI/0.1.0";
 export interface RequestOptions {
   body?: object;
   accessToken?: string;
+  /** Merged into request headers (e.g. v for entity type version). */
+  extraHeaders?: Record<string, string>;
+  /** When true and verbose mode is on, log response status/size and raw body. */
+  verboseResponse?: boolean;
 }
 
 export async function get<T>(baseUrl: string, path: string, options: RequestOptions = {}): Promise<T> {
@@ -19,7 +23,7 @@ export async function get<T>(baseUrl: string, path: string, options: RequestOpti
   }
 
   const urlString = url.toString();
-  logger.log(`GET ${url.origin}${url.pathname}${url.search ? " [query present]" : ""}`);
+  logger.log(`GET ${url.origin}${url.pathname}${url.search || ""}`);
 
   const headers: Record<string, string> = {
     "User-Agent": USER_AGENT,
@@ -31,6 +35,9 @@ export async function get<T>(baseUrl: string, path: string, options: RequestOpti
   };
   if (options.accessToken) {
     headers.accessToken = options.accessToken;
+  }
+  if (options.extraHeaders) {
+    Object.assign(headers, options.extraHeaders);
   }
 
   let res: Response;
@@ -57,6 +64,22 @@ export async function get<T>(baseUrl: string, path: string, options: RequestOpti
     throw new Error(`HTTP ${res.status}: ${text || res.statusText}`);
   }
 
+  if (options.verboseResponse && logger.isVerbose()) {
+    const text = await res.text();
+    const sizeBytes = Buffer.byteLength(text, "utf8");
+    const sizeKb = (sizeBytes / 1024).toFixed(2);
+    const details: Record<string, string> = {
+      Status: String(res.status),
+      "Content-Type": res.headers.get("content-type") ?? "(none)",
+      "Content-Length": res.headers.get("content-length") ?? String(sizeBytes),
+      "Body size": `${sizeKb} kB (${sizeBytes} bytes)`,
+    };
+    console.error("[verbose] Response details:", JSON.stringify(details, null, 2));
+    console.error("[verbose] Raw response:");
+    console.error(text);
+    return JSON.parse(text) as T;
+  }
+
   return res.json() as Promise<T>;
 }
 
@@ -74,6 +97,9 @@ export async function post<T>(baseUrl: string, path: string, body: object, optio
   };
   if (options.accessToken) {
     headers.accessToken = options.accessToken;
+  }
+  if (options.extraHeaders) {
+    Object.assign(headers, options.extraHeaders);
   }
 
   let res: Response;
