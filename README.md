@@ -2,7 +2,7 @@
 
 ℹ️ *This tool is not affiliated or endorsed by Tuta GmbH in any way.*
 
-A CLI to authenticate with [Tutanota](https://tuta.com) and (in future) export mail.
+A CLI to authenticate with [Tutanota](https://tuta.com), list mail folders, list mails in a folder, and (in future) export mail.
 
 This CLI was developed based on the official client repository [tutao/tutanota](https://github.com/tutao/tutanota) at version ...., commit .....
 
@@ -40,7 +40,8 @@ You can copy `.env.example` to `.env` and fill in your values.
 After a successful login, the CLI stores a session in a file so that later commands can reuse it without asking for your password again.
 
 - **Location:** `$XDG_CONFIG_HOME/tutanota-cli/session.json`, or `~/.config/tutanota-cli/session.json` if `XDG_CONFIG_HOME` is not set.
-- **Usage:** `auth check` and `profile` use the stored session when it is present and still valid. They only prompt for email/password when there is no session or it has expired.
+- **Usage:** `auth check`, `profile`, `folders list`, and `mails list` use the stored session when it is present and still valid. They only prompt for email/password when there is no session or it has expired. Commands that decrypt data (e.g. `folders list`) will prompt for your password when using a stored session, since the passphrase key is not persisted.
+- **Recovery:** If session verification fails (e.g. network error or session expired), the CLI clears the stored session and prompts you to log in again. You may see a brief message such as "Network error while checking session; logging in again." or "Session invalid or expired; logging in again."
 - **Log out:** Run `auth logout` to clear the stored session, or delete the session file manually.
 - **Opt-out:** Set `TUTANOTA_NO_SESSION_PERSISTENCE=1` in the environment to disable saving and using a session file.
 
@@ -115,10 +116,38 @@ Options:
 - `--json` – Output profile as JSON.
 - `--verbose`, `-v` – Verbose logging for debugging.
 
+### `folders list`
+
+Lists your mail folders (Inbox, Sent, custom folders, labels, etc.) with decrypted names. Uses the stored session when valid; if you have a stored session, you will be prompted for your password so the CLI can decrypt folder names (the passphrase key is not saved).
+
+```bash
+node dist/cli.js folders list
+npm start -- folders list
+```
+
+Options:
+
+- `--json` – Output as JSON: `{ "folders": [ { "name": "...", "id": "...", "folderType": ... }, ... ] }`.
+- `--verbose`, `-v` – Verbose logging (request URLs, key chain summary, and failure details when relevant).
+
+### `mails list <folder-id>`
+
+Lists the latest 10 mails in a folder. Use the folder id from `folders list` (e.g. `L2eum1h-1k-0` for Inbox). For each mail, shows subject, date, and unread flag. Unread mails are prefixed with `*` in human-readable output.
+
+```bash
+node dist/cli.js mails list L2eum1h-1k-0
+npm start -- mails list L2eum1h-1k-0
+```
+
+Options:
+
+- `--json` – Output as JSON: `{ "mails": [ { "subject": "...", "receivedDate": "...", "unread": true|false, "id": "..." }, ... ] }`.
+- `--verbose`, `-v` – Verbose logging for debugging.
+
 ## Limitations
 
-- **2FA**: Accounts with two-factor authentication enabled are not supported yet. The command will fail with a clear message. Use the official Tutanota client or disable 2FA for the account.
-- **Export**: Mail export is not implemented in this version; this slice only implements authentication.
+- **2FA**: Accounts with two-factor authentication enabled are not supported yet. Commands will fail with a clear message. Use the official Tutanota client or disable 2FA for the account.
+- **Export**: Mail export (downloading messages) is not implemented; the CLI supports authentication, profile, listing folders, and listing mails in a folder.
 
 ## License
 

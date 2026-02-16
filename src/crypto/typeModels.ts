@@ -87,7 +87,7 @@ export const MAIL_BOX: TypeModel = {
   },
 };
 
-/** MailSet: encrypted; name (435), folderType (436), color (1479), owner fields. */
+/** MailSet: encrypted; name (435), folderType (436), color (1479), owner fields, entries (1459). */
 export const MAIL_SET: TypeModel = {
   app: "tutanota",
   name: "MailSet",
@@ -103,6 +103,51 @@ export const MAIL_SET: TypeModel = {
     "589": { id: 589, type: "String", encrypted: false },
     "1399": { id: 1399, type: "Number", encrypted: false },
     "1479": { id: 1479, type: "String", encrypted: true },
+    "1459": { id: 1459, type: "String", encrypted: false },
+  },
+};
+
+/** MailSetEntry: unencrypted list element; we only need path/version and attribute 1456 (mail ref). */
+export const MAIL_SET_ENTRY: TypeModel = {
+  app: "tutanota",
+  name: "MailSetEntry",
+  version: 102,
+  encrypted: false,
+  values: {
+    "1452": { id: 1452, type: "String", encrypted: false },
+    "1456": { id: 1456, type: "String", encrypted: false },
+  },
+};
+
+/** Mail: encrypted; subject, dates, flags, owner fields; extended metadata for list output. */
+export const MAIL: TypeModel = {
+  app: "tutanota",
+  name: "Mail",
+  version: 102,
+  encrypted: true,
+  values: {
+    "99": { id: 99, type: "String", encrypted: false },
+    "102": { id: 102, type: "Bytes", encrypted: false },
+    "105": { id: 105, type: "String", encrypted: true },
+    "107": { id: 107, type: "Date", encrypted: false },
+    "108": { id: 108, type: "Number", encrypted: false },
+    "109": { id: 109, type: "Boolean", encrypted: false },
+    "426": { id: 426, type: "Boolean", encrypted: true },
+    "466": { id: 466, type: "Number", encrypted: true },
+    "587": { id: 587, type: "String", encrypted: false },
+    "617": { id: 617, type: "String", encrypted: true },
+    "866": { id: 866, type: "Boolean", encrypted: true },
+    "896": { id: 896, type: "Date", encrypted: false },
+    "1021": { id: 1021, type: "Number", encrypted: false },
+    "1022": { id: 1022, type: "Number", encrypted: false },
+    "1120": { id: 1120, type: "Number", encrypted: true },
+    "1307": { id: 1307, type: "Number", encrypted: false },
+    "1346": { id: 1346, type: "Number", encrypted: true },
+    "1395": { id: 1395, type: "Number", encrypted: false },
+    "1677": { id: 1677, type: "Number", encrypted: true },
+    "1728": { id: 1728, type: "Number", encrypted: false },
+    "1769": { id: 1769, type: "Boolean", encrypted: false },
+    "1784": { id: 1784, type: "Date", encrypted: false },
   },
 };
 
@@ -114,6 +159,10 @@ export const ATTR_OWNER_KEY_VERSION = "1396"; // MailBox; MailSet uses 1399
 export const MAIL_SET_ATTR_OWNER_GROUP = "589";
 export const MAIL_SET_ATTR_OWNER_ENC_SESSION_KEY = "434";
 export const MAIL_SET_ATTR_OWNER_KEY_VERSION = "1399";
+
+export const MAIL_ATTR_OWNER_GROUP = "587";
+export const MAIL_ATTR_OWNER_ENC_SESSION_KEY = "102";
+export const MAIL_ATTR_OWNER_KEY_VERSION = "1395";
 
 /** MailboxGroupRoot: mailbox association id (ELEMENT_ASSOCIATION -> MailBox id). */
 export const MAILBOX_GROUP_ROOT_MAILBOX = "699";
@@ -132,6 +181,13 @@ export function getOwnerAttrs(typeModel: TypeModel): {
       ownerGroup: MAIL_SET_ATTR_OWNER_GROUP,
       ownerEncSessionKey: MAIL_SET_ATTR_OWNER_ENC_SESSION_KEY,
       ownerKeyVersion: MAIL_SET_ATTR_OWNER_KEY_VERSION,
+    };
+  }
+  if (typeModel.name === "Mail") {
+    return {
+      ownerGroup: MAIL_ATTR_OWNER_GROUP,
+      ownerEncSessionKey: MAIL_ATTR_OWNER_ENC_SESSION_KEY,
+      ownerKeyVersion: MAIL_ATTR_OWNER_KEY_VERSION,
     };
   }
   return {

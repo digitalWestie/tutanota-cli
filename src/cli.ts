@@ -31,6 +31,8 @@ import {
   MAILBOX_GROUP_ROOT,
   MAIL_BOX,
   MAIL_SET,
+  MAIL_SET_ENTRY,
+  MAIL,
   MAILBOX_GROUP_ROOT_MAILBOX,
   MAIL_BOX_MAIL_SETS,
   MAIL_SET_REF_MAIL_SETS_LIST,
@@ -39,6 +41,7 @@ import {
   loadEntity,
   loadRange,
   GENERATED_MIN_ID,
+  GENERATED_MAX_ID,
 } from "./rest.js";
 import { keyToUint8Array } from "@tutao/tutanota-crypto";
 import { unwrapSingleElementArray } from "./utils/bytes.js";
@@ -426,6 +429,287 @@ foldersCmd
         clearSession();
         console.error(
           "Session expired or invalid. Please run 'auth check' to log in again, then try 'folders list' again."
+        );
+      } else {
+        if (verbose && err instanceof Error && err.stack) console.error("[verbose] stack:", err.stack);
+        console.error("Error:", message);
+      }
+      process.exit(1);
+    }
+  });
+
+const mailsCmd = program.command("mails").description("Mail commands");
+
+mailsCmd
+  .command("list <folder-id>")
+  .description("List latest 10 mails in a folder (folder-id from 'folders list')")
+  .option("--json", "Output as JSON")
+  .option("--verbose, -v", "Verbose logging")
+  .action(async (folderId: string, opts: { json?: boolean; verbose?: boolean; V?: boolean }) => {
+    const verbose = getVerbose(opts);
+    if (verbose) setVerbose(true);
+    const folderIdTrimmed = typeof folderId === "string" ? folderId.trim() : "";
+    if (!folderIdTrimmed) {
+      console.error("Error: folder-id is required. Run 'folders list' to see folder ids.");
+      process.exit(1);
+    }
+    try {
+      const baseUrl = getApiBaseUrl();
+      let { result } = await getOrCreateSession(baseUrl, verbose);
+      let userPassphraseKey = await getPassphraseKeyForDecryption(baseUrl, result, verbose);
+
+      let userRaw: Record<string, unknown>;
+      try {
+        userRaw = await loadUser(baseUrl, result.accessToken, result.userId) as Record<string, unknown>;
+      } catch (loadErr) {
+        const loadMsg = getErrorMessage(loadErr);
+        if ((loadMsg.includes("401") || loadMsg.includes("Unauthorized")) && readSession() != null) {
+          if (verbose) console.error("[verbose] loadUser returned 401; clearing session and retrying with fresh login.");
+          clearSession();
+          const retry = await getOrCreateSession(baseUrl, verbose);
+          result = retry.result;
+          userPassphraseKey = await getPassphraseKeyForDecryption(baseUrl, result, verbose);
+          userRaw = await loadUser(baseUrl, result.accessToken, result.userId) as Record<string, unknown>;
+        } else {
+          throw loadErr;
+        }
+      }
+      const keyMaterial = parseUserKeyMaterial(userRaw);
+      const mailMembership = getMailMembership(keyMaterial);
+      if (mailMembership == null) {
+        throw new Error("No mail group membership found.");
+      }
+
+      const keyChain = unlockUserGroupKey(userPassphraseKey, keyMaterial);
+      const mailGroupId = mailMembership.group;
+
+      const mailboxGroupRootRaw = await loadEntity<Record<string, unknown>>(
+        baseUrl,
+        MAILBOX_GROUP_ROOT,
+        mailGroupId,
+        { accessToken: result.accessToken }
+      );
+      const mailboxId = mailboxGroupRootRaw[MAILBOX_GROUP_ROOT_MAILBOX];
+      if (mailboxId == null) {
+        throw new Error("MailboxGroupRoot missing mailbox id.");
+      }
+
+      const mailboxRaw = await loadEntity<ServerInstance>(
+        baseUrl,
+        MAIL_BOX,
+        String(mailboxId),
+        { accessToken: result.accessToken }
+      );
+      const mailboxSk = resolveSessionKey(keyChain, mailboxRaw, MAIL_BOX);
+      const mailboxDecrypted = decryptParsedInstance(MAIL_BOX, mailboxRaw, mailboxSk);
+      const mailSetsAggregate = unwrapSingleElementArray(
+        mailboxDecrypted[MAIL_BOX_MAIL_SETS] as Record<string, unknown> | unknown[] | undefined
+      );
+      const mailSetListId =
+        mailSetsAggregate != null && !Array.isArray(mailSetsAggregate)
+          ? (mailSetsAggregate as Record<string, unknown>)[MAIL_SET_REF_MAIL_SETS_LIST]
+          : null;
+      if (mailSetListId == null) {
+        throw new Error("MailBox missing mailSets list id.");
+      }
+
+      const mailSetRawList = await loadRange<ServerInstance>(
+        baseUrl,
+        MAIL_SET,
+        String(mailSetListId),
+        {
+          accessToken: result.accessToken,
+          start: GENERATED_MIN_ID,
+          count: 1000,
+          reverse: false,
+        }
+      );
+
+      const keyVersionsNeeded = new Set<string>();
+      for (const raw of mailSetRawList) {
+        const v = raw["1399"];
+        if (v != null && String(v) !== mailMembership.groupKeyVersion) {
+          keyVersionsNeeded.add(String(v));
+        }
+      }
+      for (const keyVersion of keyVersionsNeeded) {
+        if (keyChain.getGroupKey(mailGroupId, keyVersion) != null) continue;
+        const formerKey = await loadFormerGroupKey(
+          baseUrl,
+          result.accessToken,
+          keyChain,
+          loadEntity,
+          loadRange,
+          mailGroupId,
+          mailMembership.groupKeyVersion,
+          keyVersion
+        );
+        if (formerKey != null) {
+          keyChain.addGroupKey(mailGroupId, keyVersion, formerKey);
+        }
+      }
+
+      const availableVersions = keyChain.getAvailableKeyVersions(mailGroupId);
+      const MAILS_LIST_CONCURRENCY = 5;
+      const folderEntries = await mapWithConcurrency(
+        mailSetRawList,
+        MAILS_LIST_CONCURRENCY,
+        async (raw) => {
+          const safe =
+            "__proto__" in raw
+              ? (Object.fromEntries(Object.entries(raw).filter(([k]) => k !== "__proto__")) as ServerInstance)
+              : raw;
+          const instanceVersion = String((safe["1399"] ?? "") as string);
+          const versionsToTry =
+            availableVersions.length <= 1 ? [instanceVersion] : [instanceVersion, ...availableVersions.filter((v) => v !== instanceVersion)];
+          let dec: ServerInstance | null = null;
+          for (const tryVer of versionsToTry) {
+            const sk = resolveSessionKey(keyChain, safe, MAIL_SET, undefined, undefined, tryVer);
+            if (sk == null) continue;
+            const failedValueIds = new Set<string>();
+            const onFail = (valueId: string) => failedValueIds.add(valueId);
+            dec = decryptParsedInstance(MAIL_SET, safe, sk, onFail);
+            if (!failedValueIds.has("435") && !failedValueIds.has("1479")) break;
+          }
+          if (dec == null) {
+            dec = decryptParsedInstance(MAIL_SET, safe, null, undefined, undefined);
+          }
+          const idRaw = safe["431"];
+          const id = Array.isArray(idRaw)
+            ? String(idRaw[idRaw.length - 1] ?? "")
+            : String(idRaw ?? "");
+          const entriesRaw = (dec as ServerInstance)["1459"];
+          const entriesListId =
+            entriesRaw != null
+              ? Array.isArray(entriesRaw) && entriesRaw.length === 1
+                ? String(entriesRaw[0])
+                : Array.isArray(entriesRaw) && entriesRaw.length >= 2
+                  ? String(entriesRaw[0])
+                  : String(entriesRaw)
+              : null;
+          return { id, entriesListId };
+        }
+      );
+
+      const folder = folderEntries.find((f) => f.id === folderIdTrimmed);
+      if (folder == null || folder.entriesListId == null) {
+        console.error("Error: Folder not found:", folderIdTrimmed, "(run 'folders list' to see folder ids)");
+        process.exit(1);
+      }
+
+      const mailSetEntryList = await loadRange<Record<string, unknown>>(
+        baseUrl,
+        MAIL_SET_ENTRY,
+        folder.entriesListId,
+        {
+          accessToken: result.accessToken,
+          start: GENERATED_MAX_ID,
+          count: 10,
+          reverse: true,
+        }
+      );
+
+      const MAIL_LOAD_CONCURRENCY = 5;
+      const mails = await mapWithConcurrency(
+        mailSetEntryList,
+        MAIL_LOAD_CONCURRENCY,
+        async (entry) => {
+          const mailRefRaw = entry["1456"];
+          const mailRef = unwrapSingleElementArray(mailRefRaw);
+          let mailId: string | [string, string];
+          if (Array.isArray(mailRef) && mailRef.length >= 2) {
+            mailId = [String(mailRef[0]), String(mailRef[1])];
+          } else if (Array.isArray(mailRef) && mailRef.length === 1) {
+            mailId = [String(mailRef[0]), ""];
+          } else {
+            mailId = String(mailRef ?? "");
+          }
+          const mailRaw = await loadEntity<ServerInstance>(baseUrl, MAIL, mailId, {
+            accessToken: result.accessToken,
+          });
+          const safeMail =
+            "__proto__" in mailRaw
+              ? (Object.fromEntries(Object.entries(mailRaw).filter(([k]) => k !== "__proto__")) as ServerInstance)
+              : mailRaw;
+          const mailSk = resolveSessionKey(keyChain, safeMail, MAIL);
+          const mailDec = decryptParsedInstance(MAIL, safeMail, mailSk ?? null);
+          const d = mailDec as ServerInstance;
+          const toDateStr = (v: unknown): string | null => {
+            if (v == null) return null;
+            if (v instanceof Date) return v.toISOString();
+            if (typeof v === "number") return new Date(v).toISOString();
+            return String(v);
+          };
+          const senderAgg = mailRaw["111"];
+          const sender = unwrapSingleElementArray(senderAgg);
+          const senderAddress =
+            sender != null && typeof sender === "object" && "95" in sender
+              ? String((sender as Record<string, unknown>)["95"] ?? "")
+              : null;
+          const idForJson =
+            typeof mailId === "string" ? mailId : mailId[0] + "/" + mailId[1];
+          return {
+            id: idForJson,
+            subject: String(d["105"] ?? ""),
+            senderAddress,
+            receivedDate: toDateStr(d["107"]) ?? null,
+            unread: d["109"] === true,
+            state: d["108"] != null ? Number(d["108"]) : null,
+            confidential: d["426"] === true,
+            replyType: d["466"] != null ? Number(d["466"]) : null,
+            differentEnvelopeSender: d["617"] != null ? String(d["617"]) : null,
+            listUnsubscribe: d["866"] === true,
+            movedTime: toDateStr(d["896"]) ?? null,
+            phishingStatus: d["1021"] != null ? Number(d["1021"]) : null,
+            authStatus: d["1022"] != null ? Number(d["1022"]) : null,
+            method: d["1120"] != null ? Number(d["1120"]) : null,
+            recipientCount: d["1307"] != null ? Number(d["1307"]) : null,
+            encryptionAuthStatus: d["1346"] != null ? Number(d["1346"]) : null,
+            keyVerificationState: d["1677"] != null ? Number(d["1677"]) : null,
+            processingState: d["1728"] != null ? Number(d["1728"]) : null,
+            processNeeded: d["1769"] === true,
+            sendAt: toDateStr(d["1784"]) ?? null,
+          };
+        }
+      );
+
+      if (opts.json) {
+        console.log(JSON.stringify({ mails }));
+      } else {
+        console.log("Mails (latest 10)");
+        console.log("-----------------");
+        for (const m of mails) {
+          const fromPart = m.senderAddress != null ? `  ${m.senderAddress}` : "";
+          console.log(`  ${m.unread ? "* " : "  "}${m.subject}\t${m.receivedDate ?? ""}${fromPart}`);
+          const meta: string[] = [
+            `id=${m.id}`,
+            `from=${m.senderAddress ?? ""}`,
+            `state=${m.state ?? ""}`,
+            `unread=${m.unread}`,
+            `confidential=${m.confidential}`,
+            `recipientCount=${m.recipientCount ?? ""}`,
+            `replyType=${m.replyType ?? ""}`,
+            `method=${m.method ?? ""}`,
+            `processingState=${m.processingState ?? ""}`,
+            `processNeeded=${m.processNeeded}`,
+          ];
+          if (m.sendAt != null) meta.push(`sendAt=${m.sendAt}`);
+          if (m.movedTime != null) meta.push(`movedTime=${m.movedTime}`);
+          if (m.phishingStatus != null) meta.push(`phishingStatus=${m.phishingStatus}`);
+          if (m.authStatus != null) meta.push(`authStatus=${m.authStatus}`);
+          if (m.differentEnvelopeSender) meta.push(`differentEnvelopeSender=${m.differentEnvelopeSender}`);
+          if (m.listUnsubscribe) meta.push("listUnsubscribe=true");
+          if (m.encryptionAuthStatus != null) meta.push(`encryptionAuthStatus=${m.encryptionAuthStatus}`);
+          if (m.keyVerificationState != null) meta.push(`keyVerificationState=${m.keyVerificationState}`);
+          console.log(`    ${meta.join("  ")}`);
+        }
+      }
+    } catch (err) {
+      const message = getErrorMessage(err);
+      if (message.includes("401") || message.includes("Unauthorized")) {
+        clearSession();
+        console.error(
+          "Session expired or invalid. Please run 'auth check' to log in again, then try 'mails list' again."
         );
       } else {
         if (verbose && err instanceof Error && err.stack) console.error("[verbose] stack:", err.stack);
