@@ -71,63 +71,31 @@ export function resolveSessionKey(
   const groupKey128 = uint8ArrayToKey(groupKeyBytes.subarray(0, 16));
   const is128BitGroupKey = groupKeyBytes.length === 16;
 
-  // When group key is 128-bit (e.g. former key for version 0), try 128-bit path first to match web client.
-  if (is128BitGroupKey) {
-    try {
-      const sk = decryptKey(groupKey128, encKey);
-      onSessionKeyAttempt?.("128", true);
-      onSessionKeyResolved?.("128");
-      return sk;
-    } catch (err128) {
-      onSessionKeyAttempt?.("128", false, err128);
-      try {
-        const sk = decryptKeyUnauthenticatedWithDeviceKeyChain(groupKey, encKey);
-        onSessionKeyAttempt?.("256-legacy", true);
-        onSessionKeyResolved?.("256-legacy");
-        return sk;
-      } catch (errLegacy) {
-        onSessionKeyAttempt?.("256-legacy", false, errLegacy);
-        try {
-          const sk = decryptKey(groupKey, encKey);
-          onSessionKeyAttempt?.("256", true);
-          onSessionKeyResolved?.("256");
-          return sk;
-        } catch (err256) {
-          onSessionKeyAttempt?.("256", false, err256);
-          onSessionKeyResolved?.(null);
-          return null;
-        }
-      }
-    }
-  }
+  type MethodName = "128" | "256-legacy" | "256";
+  const attempts: { method: MethodName; tryDecrypt: () => AesKey }[] = is128BitGroupKey
+    ? [
+        { method: "128", tryDecrypt: () => decryptKey(groupKey128, encKey) },
+        { method: "256-legacy", tryDecrypt: () => decryptKeyUnauthenticatedWithDeviceKeyChain(groupKey, encKey) },
+        { method: "256", tryDecrypt: () => decryptKey(groupKey, encKey) },
+      ]
+    : [
+        { method: "256-legacy", tryDecrypt: () => decryptKeyUnauthenticatedWithDeviceKeyChain(groupKey, encKey) },
+        { method: "256", tryDecrypt: () => decryptKey(groupKey, encKey) },
+        { method: "128", tryDecrypt: () => decryptKey(groupKey128, encKey) },
+      ];
 
-  // 256-bit group key: legacy first, then normal, then 128-bit fallback.
-  try {
-    const sk = decryptKeyUnauthenticatedWithDeviceKeyChain(groupKey, encKey);
-    onSessionKeyAttempt?.("256-legacy", true);
-    onSessionKeyResolved?.("256-legacy");
-    return sk;
-  } catch (err1) {
-    onSessionKeyAttempt?.("256-legacy", false, err1);
+  for (const { method, tryDecrypt } of attempts) {
     try {
-      const sk = decryptKey(groupKey, encKey);
-      onSessionKeyAttempt?.("256", true);
-      onSessionKeyResolved?.("256");
+      const sk = tryDecrypt();
+      onSessionKeyAttempt?.(method, true);
+      onSessionKeyResolved?.(method);
       return sk;
-    } catch (err2) {
-      onSessionKeyAttempt?.("256", false, err2);
-      try {
-        const sk = decryptKey(groupKey128, encKey);
-        onSessionKeyAttempt?.("128", true);
-        onSessionKeyResolved?.("128");
-        return sk;
-      } catch (err3) {
-        onSessionKeyAttempt?.("128", false, err3);
-        onSessionKeyResolved?.(null);
-        return null;
-      }
+    } catch (err) {
+      onSessionKeyAttempt?.(method, false, err);
     }
   }
+  onSessionKeyResolved?.(null);
+  return null;
 }
 
 function convertDbToJsType(

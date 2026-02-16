@@ -7,6 +7,7 @@ import {
 } from "@tutao/tutanota-utils";
 import { sha256Hash } from "@tutao/tutanota-crypto";
 import * as http from "../http.js";
+import { getErrorMessage } from "../logger.js";
 import * as logger from "../logger.js";
 import {
   buildCreateSessionDataRequest,
@@ -117,8 +118,7 @@ export async function verifySession(baseUrl: string, accessToken: string): Promi
       accessToken,
     });
   } catch (err) {
-    const message = err instanceof Error ? err.message : String(err);
-    throw new Error("Session verification failed: " + message);
+    throw new Error("Session verification failed: " + getErrorMessage(err));
   }
 }
 

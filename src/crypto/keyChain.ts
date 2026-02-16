@@ -34,6 +34,26 @@ interface GroupKeyEntry {
 }
 
 /**
+ * Decrypt with key; if key is 256-bit, try 128-bit key first (legacy compatibility), then full key.
+ */
+function decryptWith128BitFallback(
+  key: AesKey,
+  ciphertext: Uint8Array,
+  _logPrefix: string
+): AesKey {
+  const keyBytes = keyToUint8Array(key);
+  if (keyBytes.length > 16) {
+    const key128 = uint8ArrayToKey(keyBytes.subarray(0, 16));
+    try {
+      return decryptKey(key128, ciphertext);
+    } catch {
+      return decryptKey(key, ciphertext);
+    }
+  }
+  return decryptKey(key, ciphertext);
+}
+
+/**
  * Build a key chain from user passphrase key and parsed user key material.
  * Call unlockUserGroupKey then use getGroupKey(ownerGroup, ownerKeyVersion) for entity decryption.
  */
@@ -41,23 +61,11 @@ export function createKeyChain(
   userPassphraseKey: AesKey,
   userKeyMaterial: UserKeyMaterial
 ): KeyChain {
-  let userGroupKey: AesKey;
-  const passphraseKeyBytes = keyToUint8Array(userPassphraseKey);
-  if (passphraseKeyBytes.length > 16) {
-    log("Passphrase key is 256-bit; trying 128-bit passphrase for user group decryption.");
-    const passphraseKey128 = uint8ArrayToKey(passphraseKeyBytes.subarray(0, 16));
-    try {
-      userGroupKey = decryptKey(passphraseKey128, userKeyMaterial.userGroup.symEncGKey);
-      log("128-bit passphrase succeeded for user group.");
-    } catch {
-      log("128-bit passphrase failed for user group, using full passphrase.");
-      userGroupKey = decryptKey(userPassphraseKey, userKeyMaterial.userGroup.symEncGKey);
-    }
-  } else {
-    userGroupKey = decryptKey(userPassphraseKey, userKeyMaterial.userGroup.symEncGKey);
-  }
-  log(`User group key length: ${keyToUint8Array(userGroupKey).length} bytes.`);
-
+  const userGroupKey = decryptWith128BitFallback(
+    userPassphraseKey,
+    userKeyMaterial.userGroup.symEncGKey,
+    "user group"
+  );
   const userGroupId = userKeyMaterial.userGroup.group;
   const userGroupVersion = userKeyMaterial.userGroup.groupKeyVersion;
 
@@ -68,22 +76,14 @@ export function createKeyChain(
 
   const mailMembership = getMailMembership(userKeyMaterial);
   if (mailMembership != null) {
-    let mailGroupKey: AesKey;
-    const userGroupKeyBytes = keyToUint8Array(userGroupKey);
-    if (userGroupKeyBytes.length > 16) {
-      log("User group key is 256-bit; trying 128-bit user group key for mail group decryption.");
-      const userGroupKey128 = uint8ArrayToKey(userGroupKeyBytes.subarray(0, 16));
-      try {
-        mailGroupKey = decryptKey(userGroupKey128, mailMembership.symEncGKey);
-        log("128-bit user group key succeeded for mail group.");
-      } catch {
-        log("128-bit user group key failed for mail group, using full user group key.");
-        mailGroupKey = decryptKey(userGroupKey, mailMembership.symEncGKey);
-      }
-    } else {
-      mailGroupKey = decryptKey(userGroupKey, mailMembership.symEncGKey);
-    }
-    log(`Mail group key length: ${keyToUint8Array(mailGroupKey).length} bytes.`);
+    const mailGroupKey = decryptWith128BitFallback(
+      userGroupKey,
+      mailMembership.symEncGKey,
+      "mail group"
+    );
+    const userLen = keyToUint8Array(userGroupKey).length;
+    const mailLen = keyToUint8Array(mailGroupKey).length;
+    log(`Key chain: user group ${userLen} bytes, mail group ${mailLen} bytes (${mailLen === 16 ? "128-bit" : "256-bit"}).`);
     const mailKeys = new Map<string, AesKey>();
     mailKeys.set(mailMembership.groupKeyVersion, mailGroupKey);
     cache.set(mailMembership.group, {

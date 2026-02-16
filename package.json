@@ -10,7 +10,8 @@
   "scripts": {
     "build": "tsc",
     "start": "node dist/cli.js",
-    "auth:check": "node dist/cli.js auth check"
+    "auth:check": "node dist/cli.js auth check",
+    "test": "npm run build && node --test 'dist/**/*.test.js'"
   },
   "keywords": ["tutanota", "tuta", "cli", "export", "email"],
   "license": "GPL-3.0",

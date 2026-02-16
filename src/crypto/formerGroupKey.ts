@@ -6,6 +6,7 @@
 import { decryptKey } from "@tutao/tutanota-crypto";
 import { base64ToBase64Url, stringToUtf8Uint8Array, uint8ArrayToBase64 } from "@tutao/tutanota-utils";
 import type { AesKey } from "../auth/kdf.js";
+import { toUint8Array, unwrapSingleElementArray } from "../utils/bytes.js";
 import type { KeyChain } from "./keyChain.js";
 import {
   GROUP,
@@ -30,14 +31,6 @@ type LoadRangeFn = <T = Record<string, unknown>>(
 
 function stringToCustomId(s: string): string {
   return base64ToBase64Url(uint8ArrayToBase64(stringToUtf8Uint8Array(s)));
-}
-
-function toBytes(value: unknown): Uint8Array {
-  if (value == null) return new Uint8Array(0);
-  if (value instanceof Uint8Array) return value;
-  if (typeof value === "string") return new Uint8Array(Buffer.from(value, "base64"));
-  if (Array.isArray(value)) return new Uint8Array(value as number[]);
-  return new Uint8Array(0);
 }
 
 /**
@@ -72,8 +65,8 @@ export async function loadFormerGroupKey(
   });
   const formerRef = groupRaw[GROUP_ATTR_FORMER_GROUP_KEYS];
   if (formerRef == null) return null;
-  const refList = Array.isArray(formerRef) ? formerRef[0] : formerRef;
-  if (refList == null || typeof refList !== "object") return null;
+  const refList = unwrapSingleElementArray(formerRef);
+  if (refList == null || typeof refList !== "object" || Array.isArray(refList)) return null;
   const listAttr = (refList as Record<string, unknown>)["2269"];
   const listId = Array.isArray(listAttr) ? listAttr[0] : listAttr;
   if (listId == null || typeof listId !== "string") return null;
@@ -90,7 +83,7 @@ export async function loadFormerGroupKey(
   for (const item of formerKeysRaw) {
     const ownerEncGKey = item[GROUP_KEY_ATTR_OWNER_ENC_GKEY];
     if (ownerEncGKey == null) continue;
-    const encBytes = toBytes(ownerEncGKey);
+    const encBytes = toUint8Array(ownerEncGKey);
     if (encBytes.length === 0) continue;
     try {
       currentKey = decryptKey(currentKey, encBytes);

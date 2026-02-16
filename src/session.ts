@@ -1,6 +1,7 @@
 import * as fs from "fs";
 import * as os from "os";
 import * as path from "path";
+import { getErrorMessage } from "./logger.js";
 import * as logger from "./logger.js";
 
 const SESSION_DIR = "tutanota-cli";
@@ -76,7 +77,7 @@ export function readSession(): Session | null {
       logger.log("No session file at " + filePath);
       return null;
     }
-    logger.log("Failed to read session file: " + (err instanceof Error ? err.message : String(err)));
+    logger.log("Failed to read session file: " + getErrorMessage(err));
     throw err;
   }
 }
@@ -94,8 +95,8 @@ export function writeSession(session: Session): void {
     fs.mkdirSync(dir, { recursive: true, mode: 0o700 });
     fs.writeFileSync(filePath, JSON.stringify(session), { mode: 0o600 });
   } catch (err) {
-    logger.log("Session write failed: " + (err instanceof Error ? err.message : String(err)));
-    console.error("Warning: could not save session to", filePath, err instanceof Error ? err.message : err);
+    logger.log("Session write failed: " + getErrorMessage(err));
+    console.error("Warning: could not save session to", filePath, getErrorMessage(err));
     if (logger.isVerbose()) logger.logError("writeSession", err);
   }
 }

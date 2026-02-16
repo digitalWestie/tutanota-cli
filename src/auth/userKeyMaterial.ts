@@ -6,6 +6,8 @@
  * GroupMembership 26=_id, 27=symEncGKey, 29=group, 1030=groupType, 2246=groupKeyVersion, 2247=symKeyVersion.
  */
 
+import { toUint8Array, unwrapSingleElementArray } from "../utils/bytes.js";
+
 const USER_USER_GROUP = "95";
 const USER_MEMBERSHIPS = "96";
 
@@ -14,14 +16,6 @@ const GM_GROUP = "29";
 const GM_GROUP_TYPE = "1030";
 const GM_GROUP_KEY_VERSION = "2246";
 const GM_SYM_KEY_VERSION = "2247";
-
-function toUint8Array(value: unknown): Uint8Array {
-  if (value == null) return new Uint8Array(0);
-  if (value instanceof Uint8Array) return value;
-  if (typeof value === "string") return new Uint8Array(Buffer.from(value, "base64"));
-  if (Array.isArray(value)) return new Uint8Array(value as number[]);
-  return new Uint8Array(0);
-}
 
 function toStringOrNull(value: unknown): string | null {
   if (value == null) return null;
@@ -64,10 +58,7 @@ function parseGroupMembership(raw: Record<string, unknown>): GroupMembershipKeyM
  * Server may return userGroup (95) as a single object or as an array of one element.
  */
 export function parseUserKeyMaterial(userRaw: Record<string, unknown>): UserKeyMaterial {
-  let userGroupRaw = userRaw[USER_USER_GROUP];
-  if (userGroupRaw != null && Array.isArray(userGroupRaw) && userGroupRaw.length === 1) {
-    userGroupRaw = userGroupRaw[0];
-  }
+  const userGroupRaw = unwrapSingleElementArray(userRaw[USER_USER_GROUP]);
   if (userGroupRaw == null || typeof userGroupRaw !== "object" || Array.isArray(userGroupRaw)) {
     throw new Error("User entity missing or invalid userGroup");
   }

@@ -16,7 +16,7 @@ import {
   normalizeCustomerReturn,
   normalizeUserReturn,
 } from "./auth/types.js";
-import { setVerbose } from "./logger.js";
+import { getErrorMessage, setVerbose } from "./logger.js";
 import { clearSession, readSession, writeSession } from "./session.js";
 import type { AesKey } from "./auth/kdf.js";
 import { parseUserKeyMaterial, getMailMembership } from "./auth/userKeyMaterial.js";
@@ -41,8 +41,13 @@ import {
   GENERATED_MIN_ID,
 } from "./rest.js";
 import { keyToUint8Array } from "@tutao/tutanota-crypto";
+import { unwrapSingleElementArray } from "./utils/bytes.js";
 
 loadEnv();
+
+function getVerbose(opts: { verbose?: boolean; V?: boolean }): boolean {
+  return opts.verbose ?? opts.V ?? false;
+}
 
 /** Run fn on each item with at most `concurrency` in flight; preserves order. */
 async function mapWithConcurrency<T, R>(
@@ -88,8 +93,16 @@ async function getOrCreateSession(
         },
         usedStoredSession: true,
       };
-    } catch {
-      if (verbose) console.error("[verbose] Stored session invalid or expired, logging in again.");
+    } catch (err) {
+      const cause = err instanceof Error ? (err.cause as { code?: string } | undefined) : undefined;
+      const isNetworkError =
+        (err instanceof Error && err.message === "fetch failed") ||
+        (cause?.code && ["ETIMEDOUT", "ENETUNREACH", "ECONNRESET", "ECONNREFUSED"].includes(cause.code));
+      console.error(
+        isNetworkError
+          ? "Network error while checking session; logging in again."
+          : "Session invalid or expired; logging in again."
+      );
       clearSession();
     }
   } else if (verbose) {
@@ -146,7 +159,7 @@ authCmd
   .option("--json", "Output result as JSON")
   .option("--verbose, -v", "Verbose logging for debugging")
   .action(async (opts: { json?: boolean; verbose?: boolean; V?: boolean }) => {
-    const verbose = opts.verbose ?? opts.V ?? false;
+    const verbose = getVerbose(opts);
     if (verbose) {
       setVerbose(true);
       console.error("[verbose] Verbose logging enabled.");
@@ -173,7 +186,7 @@ authCmd
         console.log("Session ID:", result.sessionId.join("/"));
       }
     } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
+      const message = getErrorMessage(err);
       if (verbose) {
         console.error("[verbose] auth check failed:", err);
         if (err instanceof Error && err.cause) console.error("[verbose] cause:", err.cause);
@@ -204,7 +217,7 @@ foldersCmd
   .option("--json", "Output as JSON")
   .option("--verbose, -v", "Verbose logging")
   .action(async (opts: { json?: boolean; verbose?: boolean; V?: boolean }) => {
-    const verbose = opts.verbose ?? opts.V ?? false;
+    const verbose = getVerbose(opts);
     if (verbose) setVerbose(true);
     try {
       const baseUrl = getApiBaseUrl();
@@ -227,20 +240,10 @@ foldersCmd
           throw loadErr;
         }
       }
-      if (verbose) {
-        console.error("[verbose] User response keys:", Object.keys(userRaw).sort((a, b) => Number(a) - Number(b)));
-        const key95 = userRaw["95"];
-        if (key95 === undefined) {
-          console.error("[verbose] userRaw[\"95\"] (userGroup): undefined");
-        } else if (Array.isArray(key95)) {
-          console.error("[verbose] userRaw[\"95\"] (userGroup): array, length =", key95.length);
-        } else if (typeof key95 === "object" && key95 !== null) {
-          console.error("[verbose] userRaw[\"95\"] (userGroup): object, keys =", Object.keys(key95 as object));
-        } else {
-          console.error("[verbose] userRaw[\"95\"] (userGroup):", typeof key95, "=", key95);
-        }
-      }
       const keyMaterial = parseUserKeyMaterial(userRaw);
+      if (verbose) {
+        console.error("[verbose] User key material: userGroup present,", keyMaterial.memberships.length, "memberships.");
+      }
       const mailMembership = getMailMembership(keyMaterial);
       if (mailMembership == null) {
         throw new Error("No mail group membership found.");
@@ -248,15 +251,6 @@ foldersCmd
 
       const keyChain = unlockUserGroupKey(userPassphraseKey, keyMaterial);
       const mailGroupId = mailMembership.group;
-      if (verbose) {
-        const mailGroupKey = keyChain.getGroupKey(mailGroupId, mailMembership.groupKeyVersion);
-        const bitArrayLen = mailGroupKey != null ? (mailGroupKey as unknown[]).length : null;
-        console.error(
-          "[verbose] Mail group key from key chain: BitArray length =",
-          bitArrayLen,
-          bitArrayLen === 4 ? "(128-bit, matches web client)" : bitArrayLen === 8 ? "(256-bit)" : bitArrayLen != null ? "(other)" : "(null)"
-        );
-      }
 
       const mailboxGroupRootRaw = await loadEntity<Record<string, unknown>>(
         baseUrl,
@@ -277,10 +271,9 @@ foldersCmd
       );
       const mailboxSk = resolveSessionKey(keyChain, mailboxRaw, MAIL_BOX);
       const mailboxDecrypted = decryptParsedInstance(MAIL_BOX, mailboxRaw, mailboxSk);
-      let mailSetsAggregate = mailboxDecrypted[MAIL_BOX_MAIL_SETS] as Record<string, unknown> | unknown[] | undefined;
-      if (Array.isArray(mailSetsAggregate) && mailSetsAggregate.length === 1) {
-        mailSetsAggregate = mailSetsAggregate[0] as Record<string, unknown>;
-      }
+      const mailSetsAggregate = unwrapSingleElementArray(
+        mailboxDecrypted[MAIL_BOX_MAIL_SETS] as Record<string, unknown> | unknown[] | undefined
+      );
       const mailSetListId =
         mailSetsAggregate != null && !Array.isArray(mailSetsAggregate)
           ? (mailSetsAggregate as Record<string, unknown>)[MAIL_SET_REF_MAIL_SETS_LIST]
@@ -330,11 +323,6 @@ foldersCmd
           }
         }
       }
-      if (verbose) {
-        console.error("[verbose] Current mail group key version (membership):", mailMembership.groupKeyVersion);
-        const avail = keyChain.getAvailableKeyVersions(mailGroupId);
-        console.error("[verbose] Mail group available key versions:", avail.length ? avail.join(", ") : "(none)");
-      }
 
       // System folder type (MailSetKind) to display name when MailSet name is not stored (client uses fixed labels).
       const SYSTEM_FOLDER_DISPLAY_NAMES: Record<string, string> = {
@@ -357,36 +345,18 @@ foldersCmd
             "__proto__" in raw
               ? (Object.fromEntries(Object.entries(raw).filter(([k]) => k !== "__proto__")) as ServerInstance)
               : raw;
-          if (verbose && i === 0) {
-            console.error("[verbose] First MailSet raw keys:", Object.keys(safe).sort((a, b) => Number(a) - Number(b)));
-            const raw435 = safe["435"];
-            console.error("[verbose] First MailSet raw[\"435\"] (name) present:", "435" in safe, "typeof:", typeof raw435, "length:", typeof raw435 === "string" ? raw435.length : "-");
-            console.error("[verbose] First MailSet raw[\"434\"] (_ownerEncSessionKey) present:", "434" in safe);
-          }
           const onSessionKeyResolved =
             verbose && i === 0
               ? (method: "256" | "128" | "256-legacy" | null) => {
                   if (method == null) {
                     console.error("[verbose] Session key: all three attempts failed.");
-                  } else {
-                    console.error("[verbose] Session key: succeeded with method:", method);
                   }
-                }
-              : undefined;
-          const onSessionKeyAttempt =
-            verbose && i === 0
-              ? (method: "256-legacy" | "256" | "128", success: boolean, err?: unknown) => {
-                  const msg = err instanceof Error ? err.message : success ? "ok" : String(err);
-                  console.error("[verbose] Session key try", method, success ? "ok" : "failed", success ? "" : msg);
                 }
               : undefined;
           const instanceVersion = String((safe["1399"] ?? "") as string);
           const versionsToTry =
             availableVersions.length <= 1 ? [instanceVersion] : [instanceVersion, ...availableVersions.filter((v) => v !== instanceVersion)];
           const idForLog = Array.isArray(safe["431"]) ? safe["431"][(safe["431"] as unknown[]).length - 1] : safe["431"];
-          if (verbose) {
-            console.error("[verbose] MailSet", idForLog, "_ownerKeyVersion", instanceVersion || "(empty)", "trying versions:", versionsToTry.join(", "));
-          }
           let dec: ServerInstance | null = null;
           let triedVersion: string | null = null;
           for (const tryVer of versionsToTry) {
@@ -394,21 +364,11 @@ foldersCmd
             const onDecryptFailureInner = (valueId: string, err: unknown) => {
               failedValueIds.add(valueId);
               if (verbose) {
-                const msg = err instanceof Error ? err.message : String(err);
-                console.error("[verbose] Decrypt failed for MailSet attribute", valueId, "(both 256- and 128-bit session key):", msg);
+                console.error("[verbose] Decrypt failed for MailSet attribute", valueId, "(both 256- and 128-bit session key):", getErrorMessage(err));
               }
             };
-            const sk = resolveSessionKey(keyChain, safe, MAIL_SET, onSessionKeyResolved, onSessionKeyAttempt, tryVer);
+            const sk = resolveSessionKey(keyChain, safe, MAIL_SET, onSessionKeyResolved, undefined, tryVer);
             if (sk == null) continue;
-            if (verbose && i === 0) {
-              console.error("[verbose] First MailSet session key resolved with keyVersion:", tryVer);
-            }
-            if (verbose) {
-              const elemId = String(idForLog);
-              if (elemId === "NsU5UFd--F-9" || elemId === "OGf8ADw--F-9") {
-                console.error("[verbose] Session key length for", elemId, "keyVersion", tryVer, ":", keyToUint8Array(sk).length, "bytes");
-              }
-            }
             const onDecryptFallback =
               verbose
                 ? (valueId: string) => {
@@ -429,8 +389,8 @@ foldersCmd
             dec = decryptParsedInstance(MAIL_SET, safe, null, undefined, undefined);
           }
           const name = ((dec as ServerInstance)["435"] ?? "") as string;
-          if (verbose && i === 0) {
-            console.error("[verbose] First MailSet dec[\"435\"] (name) after decrypt: typeof:", typeof (dec as ServerInstance)["435"], "length:", typeof name === "string" ? name.length : "-", "preview:", JSON.stringify(String(name).slice(0, 50)));
+          if (verbose && i === 0 && dec != null) {
+            console.error("[verbose] First MailSet: session key resolved, name decrypted.");
           }
           const idRaw = safe["431"];
           // Server returns 431 as [listId, elementId] for list elements; use element id for display.
@@ -461,7 +421,7 @@ foldersCmd
         }
       }
     } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
+      const message = getErrorMessage(err);
       if (message.includes("401") || message.includes("Unauthorized")) {
         clearSession();
         console.error(
@@ -481,7 +441,7 @@ program
   .option("--json", "Output result as JSON")
   .option("--verbose, -v", "Verbose logging for debugging")
   .action(async (opts: { json?: boolean; verbose?: boolean; V?: boolean }) => {
-    const verbose = opts.verbose ?? opts.V ?? false;
+    const verbose = getVerbose(opts);
     if (verbose) {
       setVerbose(true);
       console.error("[verbose] Verbose logging enabled.");
@@ -576,7 +536,7 @@ program
         }
       }
     } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
+      const message = getErrorMessage(err);
       if (verbose) {
         console.error("[verbose] profile failed:", err);
         if (err instanceof Error && err.cause) console.error("[verbose] cause:", err.cause);

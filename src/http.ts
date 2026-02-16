@@ -47,13 +47,14 @@ export async function get<T>(baseUrl: string, path: string, options: RequestOpti
       headers,
     });
   } catch (err) {
-    // Always log something useful when fetch fails (message is often just "fetch failed")
-    const cause = err instanceof Error ? err.cause : null;
-    console.error("Request failed: GET", url.origin + url.pathname);
-    console.error("Error:", err);
-    if (cause) console.error("Cause:", cause);
-    if (logger.isVerbose() && err instanceof Error && err.stack) {
-      console.error("[verbose] stack:", err.stack);
+    if (logger.isVerbose()) {
+      const cause = err instanceof Error ? err.cause : null;
+      console.error("Request failed: GET", url.origin + url.pathname);
+      console.error("Error:", err);
+      if (cause) console.error("Cause:", cause);
+      if (err instanceof Error && err.stack) {
+        console.error("[verbose] stack:", err.stack);
+      }
     }
     throw err;
   }
@@ -68,15 +69,7 @@ export async function get<T>(baseUrl: string, path: string, options: RequestOpti
     const text = await res.text();
     const sizeBytes = Buffer.byteLength(text, "utf8");
     const sizeKb = (sizeBytes / 1024).toFixed(2);
-    const details: Record<string, string> = {
-      Status: String(res.status),
-      "Content-Type": res.headers.get("content-type") ?? "(none)",
-      "Content-Length": res.headers.get("content-length") ?? String(sizeBytes),
-      "Body size": `${sizeKb} kB (${sizeBytes} bytes)`,
-    };
-    console.error("[verbose] Response details:", JSON.stringify(details, null, 2));
-    console.error("[verbose] Raw response:");
-    console.error(text);
+    console.error("[verbose] Response:", res.status, sizeKb + " kB");
     return JSON.parse(text) as T;
   }
 
