@@ -49,7 +49,7 @@ After a successful login, the CLI stores a session in a file so that later comma
 
 ### `auth check`
 
-Verifies that you can log in (or that your stored session is still valid). On success, prints your user ID and session ID. If a valid session is already stored, it may succeed without prompting for credentials.
+Verifies that you can log in (or that your stored session is still valid). On success, prints one line of tab-separated columns: Status, UserId, SessionId, UsedStoredSession. If a valid session is already stored, it may succeed without prompting for credentials.
 
 ```bash
 node dist/cli.js auth check
@@ -73,43 +73,16 @@ npm start -- auth logout
 
 ### `profile`
 
-Logs in (or uses the stored session) and loads your user profile. Output is grouped into three blocks:
+Logs in (or uses the stored session) and loads your user profile. Human-readable output is three tab-separated tables: **User** (Key, Value), **Customer** (Key, Value), and **Customer info** (Key, Value). Each table has a section title line, then a header line, then one row per field.
 
-- **User** – Account type, enabled, KDF version, require password update, customer id.
-- **Customer** – Type, approval status, business use, order processing agreement needed.
-- **Customer info** – Domain, company, plan, registration mail, creation and activation time, included email aliases and storage, per-user storage capacity and alias count, and a list of your domains.
-
-With `--json`, the same structure is output as JSON. With `--verbose`, extra debug logs (e.g. request URLs) are printed.
+With `--json`, the full structure is output as JSON. With `--verbose`, extra debug logs (e.g. request URLs) are printed.
 
 ```bash
 node dist/cli.js profile
 npm start -- profile
 ```
 
-Example output (without `--json`):
-
-```
-Profile
--------
-User
-  Account type: 3
-  Enabled: 1
-  KDF version: 1
-  Require password update: 0
-  Customer id: [ '...' ]
-Customer
-  Type: 3
-  Approval status: 2
-  Business use: 0
-  Order processing agreement needed: 0
-Customer info
-  Plan: 6
-  Registration mail: you@tuta.io
-  ...
-  Domain infos: 2 domain(s)
-    - example.com
-    - mail.example.com
-```
+Example output (without `--json`): section title "User", then "Key\tValue", then rows; then "Customer" and its table; then "Customer info" and its table (including domainInfos summary and domain_0, domain_1, etc.).
 
 Options:
 
@@ -118,7 +91,7 @@ Options:
 
 ### `folders list`
 
-Lists your mail folders (Inbox, Sent, custom folders, labels, etc.) with decrypted names. Uses the stored session when valid; if you have a stored session, you will be prompted for your password so the CLI can decrypt folder names (the passphrase key is not saved).
+Lists your mail folders (Inbox, Sent, custom folders, labels, etc.) with decrypted names. Human-readable output is tab-separated columns: Name, Id, FolderType. Uses the stored session when valid; if you have a stored session, you will be prompted for your password so the CLI can decrypt folder names (the passphrase key is not saved).
 
 ```bash
 node dist/cli.js folders list

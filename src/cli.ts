@@ -17,7 +17,7 @@ import {
   normalizeUserReturn,
 } from "./auth/types.js";
 import { getErrorMessage, setVerbose } from "./logger.js";
-import { clearSession, readSession, writeSession } from "./session.js";
+import { clearSession, getSessionPath, readSession, writeSession } from "./session.js";
 import type { AesKey } from "./auth/kdf.js";
 import { parseUserKeyMaterial, getMailMembership } from "./auth/userKeyMaterial.js";
 import { unlockUserGroupKey } from "./crypto/keyChain.js";
@@ -182,11 +182,8 @@ authCmd
           })
         );
       } else {
-        if (usedStoredSession) console.log("Using stored session.");
-        console.log("Authenticated.");
-        console.log("Session verified.");
-        console.log("User ID:", result.userId);
-        console.log("Session ID:", result.sessionId.join("/"));
+        console.log("Status\tUserId\tSession ID\tStored?\tStorage Path");
+        console.log(`Authenticated\t${result.userId}\t${result.sessionId.join("/")}\t${usedStoredSession}\t${getSessionPath()}`);
       }
     } catch (err) {
       const message = getErrorMessage(err);
@@ -417,10 +414,9 @@ foldersCmd
       if (opts.json) {
         console.log(JSON.stringify({ folders }));
       } else {
-        console.log("Folders");
-        console.log("-------");
+        console.log("Name\tId\tFolderType");
         for (const f of folders) {
-          console.log(`  ${f.name}\t${f.id}`);
+          console.log(`${f.name}\t${f.id}\t${f.folderType}`);
         }
       }
     } catch (err) {
@@ -445,9 +441,12 @@ mailsCmd
   .description("List latest 10 mails in a folder (folder-id from 'folders list')")
   .option("--json", "Output as JSON")
   .option("--verbose, -v", "Verbose logging")
-  .action(async (folderId: string, opts: { json?: boolean; verbose?: boolean; V?: boolean }) => {
+  .option("--count <n>, -c <n>", "Number of mails to list (default: 10, max: 100)")
+  .action(async (folderId: string, opts: { json?: boolean; verbose?: boolean; V?: boolean; count?: number }) => {
     const verbose = getVerbose(opts);
     if (verbose) setVerbose(true);
+    const count = opts.count != null ? Math.max(1, Math.min(100, opts.count)) : 10;
+
     const folderIdTrimmed = typeof folderId === "string" ? folderId.trim() : "";
     if (!folderIdTrimmed) {
       console.error("Error: folder-id is required. Run 'folders list' to see folder ids.");
@@ -604,7 +603,7 @@ mailsCmd
         {
           accessToken: result.accessToken,
           start: GENERATED_MAX_ID,
-          count: 10,
+          count: count,
           reverse: true,
         }
       );
@@ -676,11 +675,19 @@ mailsCmd
       if (opts.json) {
         console.log(JSON.stringify({ mails }));
       } else {
-        console.log("Mails (latest 10)");
-        console.log("-----------------");
+        console.log("Subject\tDate\tFrom\tRead\tState");
         for (const m of mails) {
-          const fromPart = m.senderAddress != null ? `  ${m.senderAddress}` : "";
-          console.log(`  ${m.unread ? "* " : "  "}${m.subject}\t${m.receivedDate ?? ""}${fromPart}`);
+          const fromPart = m.senderAddress != null ? m.senderAddress : "";
+          let statePart = "Unknown";
+          if (m.state === 0) statePart = "Draft";
+          if (m.state === 1) statePart = "Sent";
+          if (m.state === 2) statePart = "Received";
+          if (m.state === 3) statePart = "Sending";
+
+          const subjectPart = m.subject.replace(/\r\n|\r|\n/g, " ").trim();
+          const mainPart = `${subjectPart}\t${m.receivedDate ?? ""}\t${fromPart}\t${m.unread ? "Read" : "Unread"}\t${statePart}`;
+          console.log(mainPart);
+
           const meta: string[] = [
             `id=${m.id}`,
             `from=${m.senderAddress ?? ""}`,
@@ -701,7 +708,7 @@ mailsCmd
           if (m.listUnsubscribe) meta.push("listUnsubscribe=true");
           if (m.encryptionAuthStatus != null) meta.push(`encryptionAuthStatus=${m.encryptionAuthStatus}`);
           if (m.keyVerificationState != null) meta.push(`keyVerificationState=${m.keyVerificationState}`);
-          console.log(`    ${meta.join("  ")}`);
+          if (verbose) console.log(`    ${meta.join("  ")}`);
         }
       }
     } catch (err) {
@@ -774,49 +781,55 @@ program
       if (opts.json) {
         console.log(JSON.stringify(fullProfile));
       } else {
-        console.log("Profile");
-        console.log("-------");
+        const userRows: string[][] = [];
+        if (user.accountType != null) userRows.push(["accountType", String(user.accountType)]);
+        if (user.enabled != null) userRows.push(["enabled", String(user.enabled)]);
+        if (user.kdfVersion != null) userRows.push(["kdfVersion", String(user.kdfVersion)]);
+        if (user.requirePasswordUpdate != null) userRows.push(["requirePasswordUpdate", String(user.requirePasswordUpdate)]);
+        if (user.customer != null) userRows.push(["customer", String(user.customer)]);
         console.log("User");
-        if (user.accountType != null) console.log("  Account type:", user.accountType);
-        if (user.enabled != null) console.log("  Enabled:", user.enabled);
-        if (user.kdfVersion != null) console.log("  KDF version:", user.kdfVersion);
-        if (user.requirePasswordUpdate != null)
-          console.log("  Require password update:", user.requirePasswordUpdate);
-        if (user.customer != null) console.log("  Customer id:", user.customer);
+        console.log("Key\tValue");
+        for (const row of userRows) console.log(row.join("\t"));
 
         if (customer != null) {
-          console.log("Customer");
-          if (customer.type != null) console.log("  Type:", customer.type);
-          if (customer.approvalStatus != null) console.log("  Approval status:", customer.approvalStatus);
-          if (customer.businessUse != null) console.log("  Business use:", customer.businessUse);
+          const customerRows: string[][] = [];
+          if (customer.type != null) customerRows.push(["type", String(customer.type)]);
+          if (customer.approvalStatus != null) customerRows.push(["approvalStatus", String(customer.approvalStatus)]);
+          if (customer.businessUse != null) customerRows.push(["businessUse", String(customer.businessUse)]);
           if (customer.orderProcessingAgreementNeeded != null)
-            console.log("  Order processing agreement needed:", customer.orderProcessingAgreementNeeded);
+            customerRows.push(["orderProcessingAgreementNeeded", String(customer.orderProcessingAgreementNeeded)]);
+          console.log("\nCustomer");
+          console.log("Key\tValue");
+          for (const row of customerRows) console.log(row.join("\t"));
         }
 
         if (customerInfo != null) {
-          console.log("Customer info");
-          if (customerInfo.domain != null) console.log("  Domain:", customerInfo.domain);
-          if (customerInfo.company != null) console.log("  Company:", customerInfo.company);
-          if (customerInfo.plan != null) console.log("  Plan:", customerInfo.plan);
+          const infoRows: string[][] = [];
+          if (customerInfo.domain != null) infoRows.push(["domain", String(customerInfo.domain)]);
+          if (customerInfo.company != null) infoRows.push(["company", String(customerInfo.company)]);
+          if (customerInfo.plan != null) infoRows.push(["plan", String(customerInfo.plan)]);
           if (customerInfo.registrationMailAddress != null)
-            console.log("  Registration mail:", customerInfo.registrationMailAddress);
-          if (customerInfo.creationTime != null) console.log("  Creation time:", customerInfo.creationTime);
-          if (customerInfo.activationTime != null) console.log("  Activation time:", customerInfo.activationTime);
+            infoRows.push(["registrationMailAddress", String(customerInfo.registrationMailAddress)]);
+          if (customerInfo.creationTime != null) infoRows.push(["creationTime", String(customerInfo.creationTime)]);
+          if (customerInfo.activationTime != null) infoRows.push(["activationTime", String(customerInfo.activationTime)]);
           if (customerInfo.includedEmailAliases != null)
-            console.log("  Included email aliases:", customerInfo.includedEmailAliases);
+            infoRows.push(["includedEmailAliases", String(customerInfo.includedEmailAliases)]);
           if (customerInfo.includedStorageCapacity != null)
-            console.log("  Included storage capacity:", customerInfo.includedStorageCapacity);
+            infoRows.push(["includedStorageCapacity", String(customerInfo.includedStorageCapacity)]);
           if (customerInfo.perUserStorageCapacity != null)
-            console.log("  Per-user storage capacity:", customerInfo.perUserStorageCapacity);
+            infoRows.push(["perUserStorageCapacity", String(customerInfo.perUserStorageCapacity)]);
           if (customerInfo.perUserAliasCount != null)
-            console.log("  Per-user alias count:", customerInfo.perUserAliasCount);
+            infoRows.push(["perUserAliasCount", String(customerInfo.perUserAliasCount)]);
           if (customerInfo.domainInfos != null && Array.isArray(customerInfo.domainInfos)) {
-            console.log("  Domain infos:", customerInfo.domainInfos.length, "domain(s)");
-            for (const di of customerInfo.domainInfos) {
+            infoRows.push(["domainInfos", `${customerInfo.domainInfos.length} domain(s)`]);
+            customerInfo.domainInfos.forEach((di: { domain?: string } | unknown, i: number) => {
               const domain = typeof di === "object" && di !== null && "domain" in di ? (di as { domain?: string }).domain : null;
-              console.log("    -", domain ?? "(no domain name)");
-            }
+              infoRows.push([`domain_${i}`, domain ?? "(no domain name)"]);
+            });
           }
+          console.log("\nCustomer info");
+          console.log("Key\tValue");
+          for (const row of infoRows) console.log(row.join("\t"));
         }
       }
     } catch (err) {
