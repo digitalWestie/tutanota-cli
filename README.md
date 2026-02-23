@@ -2,7 +2,7 @@
 
 ℹ️ *This tool is not affiliated or endorsed by Tuta GmbH in any way.*
 
-A CLI to authenticate with [Tutanota](https://tuta.com), list mail folders, list mails in a folder, and (in future) export mail.
+A CLI to authenticate with [Tutanota](https://tuta.com), list mail folders, list envelopes (message headers) in a folder, and (in future) export mail.
 
 This CLI was developed based on the official client repository [tutao/tutanota](https://github.com/tutao/tutanota) at version ...., commit .....
 
@@ -31,7 +31,7 @@ Optional:
 
 - `TUTANOTA_API_URL` – API base URL, from env or `.env` (default: `https://app.tuta.com`)
 
-If `TUTANOTA_EMAIL` or `TUTANOTA_PASSWORD` is not set, the CLI will prompt you for it when you run an auth command. The password prompt is hidden (no echo). Do not pass passwords via command-line flags. Credentials are only used when logging in (for example when there is no valid stored session or when session persistence is disabled).
+If `TUTANOTA_EMAIL` or `TUTANOTA_PASSWORD` is not set, the CLI will prompt you for it when you run an account command (e.g. `account check`). The password prompt is hidden (no echo). Do not pass passwords via command-line flags. Credentials are only used when logging in (for example when there is no valid stored session or when session persistence is disabled).
 
 You can copy `.env.example` to `.env` and fill in your values.
 
@@ -40,21 +40,29 @@ You can copy `.env.example` to `.env` and fill in your values.
 After a successful login, the CLI stores a session in a file so that later commands can reuse it without asking for your password again.
 
 - **Location:** `$XDG_CONFIG_HOME/tutanota-cli/session.json`, or `~/.config/tutanota-cli/session.json` if `XDG_CONFIG_HOME` is not set.
-- **Usage:** `auth check`, `profile`, `folders list`, and `mails list` use the stored session when it is present and still valid. They only prompt for email/password when there is no session or it has expired. Commands that decrypt data (e.g. `folders list`) will prompt for your password when using a stored session, since the passphrase key is not persisted.
+- **Usage:** `account check`, `account profile`, `account logout`, `folders list`, and `envelope list` use the stored session when it is present and still valid. The same commands are also available under the `auth` alias (e.g. `auth check`, `auth profile`, `auth logout`). Commands that decrypt data (e.g. `folders list`) will prompt for your password when using a stored session, since the passphrase key is not persisted. Running the CLI with **no subcommand** lists the default folder (Inbox), same as `envelope list`.
 - **Recovery:** If session verification fails (e.g. network error or session expired), the CLI clears the stored session and prompts you to log in again. You may see a brief message such as "Network error while checking session; logging in again." or "Session invalid or expired; logging in again."
-- **Log out:** Run `auth logout` to clear the stored session, or delete the session file manually.
+- **Log out:** Run `account logout` (or `auth logout`) to clear the stored session, or delete the session file manually.
 - **Opt-out:** Set `TUTANOTA_NO_SESSION_PERSISTENCE=1` in the environment to disable saving and using a session file.
+
+## Global options
+
+- `--output`, `-o` **&lt;format&gt;** – Output format: `json` or `plain` (default: `plain`). Applies to commands that produce structured output. You can also use per-command `--json` on individual commands for the same effect.
+
+## Default behavior
+
+Running the CLI with **no subcommand** (e.g. `node dist/cli.js` or `npm start`) lists the default folder (Inbox), same as `envelope list` with default options.
 
 ## Commands
 
-### `auth check`
+### `account check`
 
-Verifies that you can log in (or that your stored session is still valid). On success, prints one line of tab-separated columns: Status, UserId, Session ID, Stored?, Storage Path. If a valid session is already stored, it may succeed without prompting for credentials.
+Verifies that you can log in (or that your stored session is still valid). On success, prints one line of tab-separated columns: Status, UserId, Session ID, Stored?, Storage Path. If a valid session is already stored, it may succeed without prompting for credentials. Also available as `auth check`.
 
 ```bash
-node dist/cli.js auth check
+node dist/cli.js account check
 # or, after npm run build:
-npm start -- auth check
+npm start -- account check
 ```
 
 Options:
@@ -62,24 +70,24 @@ Options:
 - `--json` – Output machine-readable JSON: `{ "ok": true, "userId": "...", "sessionId": ["...", "..."] }` on success, or `{ "ok": false, "error": "..." }` on failure.
 - `--verbose`, `-v` – Verbose logging (request URLs, errors with cause/stack) for debugging.
 
-### `auth logout`
+### `account logout`
 
-Clears the stored session so that the next command will prompt for credentials again.
+Clears the stored session so that the next command will prompt for credentials again. Also available as `auth logout`.
 
 ```bash
-node dist/cli.js auth logout
-npm start -- auth logout
+node dist/cli.js account logout
+npm start -- account logout
 ```
 
-### `profile`
+### `account profile`
 
-Logs in (or uses the stored session) and loads your user profile. Human-readable output is three tab-separated tables: **User** (Key, Value), **Customer** (Key, Value), and **Customer info** (Key, Value). Each table has a section title line, then a header line, then one row per field.
+Logs in (or uses the stored session) and loads your user profile. Human-readable output is three tab-separated tables: **User** (Key, Value), **Customer** (Key, Value), and **Customer info** (Key, Value). Each table has a section title line, then a header line, then one row per field. Also available as `auth profile`.
 
 With `--json`, the full structure is output as JSON. With `--verbose`, extra debug logs (e.g. request URLs) are printed.
 
 ```bash
-node dist/cli.js profile
-npm start -- profile
+node dist/cli.js account profile
+npm start -- account profile
 ```
 
 Example output (without `--json`): section title "User", then "Key\tValue", then rows; then "Customer" and its table; then "Customer info" and its table (including domainInfos summary and domain_0, domain_1, etc.).
@@ -103,26 +111,27 @@ Options:
 - `--json` – Output as JSON: `{ "folders": [ { "name": "...", "id": "...", "folderType": ... }, ... ] }`.
 - `--verbose`, `-v` – Verbose logging (request URLs, key chain summary, and failure details when relevant).
 
-### `mails list [folder-id]`
+### `envelope list [folder-id]`
 
-Lists the latest N mails in a folder. **Folder is optional and defaults to Inbox** when omitted; use a folder id from `folders list` (e.g. `L2eum1h-1k-0`) to list another folder. For each mail, shows subject, date, from, and unread flag. Unread mails are prefixed with `*` in human-readable output.
+Lists the latest N envelopes (message headers) in a folder. **Folder is optional and defaults to Inbox** when omitted; use a folder id from `folders list` (e.g. `L2eum1h-1k-0`) to list another folder. For each envelope, shows subject, date, from, and unread flag. Unread items are prefixed with `*` in human-readable output. Also available as `emails list`.
 
 ```bash
-node dist/cli.js mails list
-npm start -- mails list
-node dist/cli.js mails list L2eum1h-1k-0
+node dist/cli.js envelope list
+npm start -- envelope list
+node dist/cli.js envelope list L2eum1h-1k-0
 ```
 
 Options:
 
 - `--json` – Output as JSON: `{ "mails": [ { "subject": "...", "receivedDate": "...", "unread": true|false, "id": "..." }, ... ] }`.
 - `--verbose`, `-v` – Verbose logging for debugging.
-- `--unread`, `-u` – Show only unread mails (filters the listed mails client-side).
+- `--count`, `-c` – Number of envelopes to list (default: 10, max: 100).
+- `--unread`, `-u` – Show only unread (filters client-side).
 
 ## Limitations
 
 - **2FA**: Accounts with two-factor authentication enabled are not supported yet. Commands will fail with a clear message. Use the official Tutanota client or disable 2FA for the account.
-- **Export**: Mail export (downloading messages) is not implemented; the CLI supports authentication, profile, listing folders, and listing mails in a folder.
+- **Export**: Mail export (downloading messages) is not implemented; the CLI supports authentication, profile, listing folders, and listing envelopes in a folder.
 
 ## License
 

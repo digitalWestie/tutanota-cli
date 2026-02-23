@@ -154,17 +154,24 @@ const program = new Command();
 program
   .name("tutanota-cli")
   .description("CLI to authenticate with and export mail from Tutanota")
-  .version("0.1.0");
+  .version("0.1.0")
+  .option("--output, -o <format>", "Output format: json or plain", "plain");
 
-const authCmd = program.command("auth").description("Authentication commands");
+function getOutputFormat(cmdOpts: { json?: boolean }): boolean {
+  const o = program.opts() as { output?: string };
+  return o.output === "json" || cmdOpts.json === true;
+}
 
-authCmd
+const accountCmd = program.command("account").alias("auth").description("Account and session commands");
+
+accountCmd
   .command("check")
   .description("Verify credentials by logging in; prints session info on success")
   .option("--json", "Output result as JSON")
   .option("--verbose, -v", "Verbose logging for debugging")
   .action(async (opts: { json?: boolean; verbose?: boolean; V?: boolean }) => {
     const verbose = opts.V ?? false;
+    const useJson = getOutputFormat(opts);
     if (verbose) {
       setVerbose(true);
       console.error("[verbose] Verbose logging enabled.");
@@ -174,7 +181,7 @@ authCmd
       if (verbose) console.error("[verbose] API base URL:", baseUrl);
       const { result, usedStoredSession } = await getOrCreateSession(baseUrl, verbose);
 
-      if (opts.json) {
+      if (useJson) {
         console.log(
           JSON.stringify({
             ok: true,
@@ -190,11 +197,11 @@ authCmd
     } catch (err) {
       const message = getErrorMessage(err);
       if (verbose) {
-        console.error("[verbose] auth check failed:", err);
+        console.error("[verbose] account check failed:", err);
         if (err instanceof Error && err.cause) console.error("[verbose] cause:", err.cause);
         if (err instanceof Error && err.stack) console.error("[verbose] stack:", err.stack);
       }
-      if (opts.json) {
+      if (getOutputFormat(opts)) {
         console.log(JSON.stringify({ ok: false, error: message }));
       } else {
         console.error("Error:", message);
@@ -203,7 +210,7 @@ authCmd
     }
   });
 
-authCmd
+accountCmd
   .command("logout")
   .description("Clear the stored session (log out)")
   .action(() => {
@@ -413,7 +420,7 @@ foldersCmd
         }
       );
 
-      if (opts.json) {
+      if (getOutputFormat(opts)) {
         console.log(JSON.stringify({ folders }));
       } else {
         console.log("Name\tId\tFolderType");
@@ -426,7 +433,7 @@ foldersCmd
       if (isSessionExpiredOrInvalid(err)) {
         clearSession();
         console.error(
-          "Session expired, invalid, or timed out (HTTP 440). Please run 'auth check' to log in again, then try 'folders list' again."
+          "Session expired, invalid, or timed out (HTTP 440). Please run 'account check' (or 'auth check') to log in again, then try 'folders list' again."
         );
       } else {
         if (verbose && err instanceof Error && err.stack) console.error("[verbose] stack:", err.stack);
@@ -436,28 +443,34 @@ foldersCmd
     }
   });
 
-const mailsCmd = program.command("mails").description("Mail commands");
+type EnvelopeListOptions = {
+  json?: boolean;
+  output?: string;
+  verbose?: boolean;
+  V?: boolean;
+  count?: number;
+  C?: number;
+  unread?: boolean;
+  U?: boolean;
+};
 
-mailsCmd
-  .command("list [folder-id]")
-  .description("List latest N mails in a folder (default: Inbox; folder-id from 'folders list')")
-  .option("--json", "Output as JSON")
-  .option("--verbose, -v", "Verbose logging")
-  .option("--count, -c <n>", "Number of mails to list (default: 10, max: 100)")
-  .option("--unread, -u", "Show only unread mails")
-  .action(async (folderId: string | undefined, opts: { json?: boolean; verbose?: boolean; V?: boolean; C?: number; count?: number; unread?: boolean; U?: boolean }) => {
-    const verbose = opts.verbose ?? opts.V ?? false;
-    if (verbose) setVerbose(true);
-    const count = opts.C != null ? Math.max(1, Math.min(100, opts.C)) : 10;
-    const onlyUnread = opts.unread ?? opts.U ?? false;
+async function runEnvelopeList(
+  folderId: string | undefined,
+  options: EnvelopeListOptions
+): Promise<void> {
+  const verbose = options.verbose ?? options.V ?? false;
+  if (verbose) setVerbose(true);
+  const count = options.count ?? (options.C != null ? Math.max(1, Math.min(100, options.C)) : 10);
+  const onlyUnread = options.unread ?? options.U ?? false;
+  const useJson = getOutputFormat(options);
 
-    if (verbose) {
-      console.error("[verbose] Running with options:", JSON.stringify(opts));
-      console.error("[verbose] count=", count, "onlyUnread=", onlyUnread);
-    }
+  if (verbose) {
+    console.error("[verbose] Running with options:", JSON.stringify(options));
+    console.error("[verbose] count=", count, "onlyUnread=", onlyUnread);
+  }
 
-    const folderIdTrimmed = typeof folderId === "string" ? folderId.trim() : "";
-    try {
+  const folderIdTrimmed = typeof folderId === "string" ? folderId.trim() : "";
+  try {
       const baseUrl = getApiBaseUrl();
       let { result } = await getOrCreateSession(baseUrl, verbose);
       let userPassphraseKey = await getPassphraseKeyForDecryption(baseUrl, result, verbose);
@@ -687,7 +700,7 @@ mailsCmd
 
       const toShow = onlyUnread ? mails.filter((m) => m.unread) : mails;
 
-      if (opts.json) {
+      if (useJson) {
         console.log(JSON.stringify({ mails: toShow }));
       } else {
         console.log("Subject\tDate\tFrom\tRead\tState");
@@ -731,7 +744,7 @@ mailsCmd
       if (isSessionExpiredOrInvalid(err)) {
         clearSession();
         console.error(
-          "Session expired, invalid, or timed out (HTTP 440). Please run 'auth check' to log in again, then try 'mails list' again."
+          "Session expired, invalid, or timed out (HTTP 440). Please run 'account check' (or 'auth check') to log in again, then try 'envelope list' again."
         );
       } else {
         if (verbose && err instanceof Error && err.stack) console.error("[verbose] stack:", err.stack);
@@ -739,15 +752,29 @@ mailsCmd
       }
       process.exit(1);
     }
+}
+
+const envelopeCmd = program.command("envelope").alias("emails").description("Envelope (message header) commands");
+
+envelopeCmd
+  .command("list [folder-id]")
+  .description("List latest N envelopes in a folder (default: Inbox; folder-id from 'folders list')")
+  .option("--json", "Output as JSON")
+  .option("--verbose, -v", "Verbose logging")
+  .option("--count, -c <n>", "Number of envelopes to list (default: 10, max: 100)")
+  .option("--unread, -u", "Show only unread")
+  .action(async (folderId: string | undefined, opts: { json?: boolean; verbose?: boolean; V?: boolean; C?: number; count?: number; unread?: boolean; U?: boolean }) => {
+    await runEnvelopeList(folderId, { ...program.opts(), ...opts, count: opts.C != null ? Math.max(1, Math.min(100, opts.C)) : opts.count ?? 10 });
   });
 
-program
+accountCmd
   .command("profile")
   .description("Log in and show your user profile (account type, enabled, etc.)")
   .option("--json", "Output result as JSON")
   .option("--verbose, -v", "Verbose logging for debugging")
   .action(async (opts: { json?: boolean; verbose?: boolean; V?: boolean }) => {
     const verbose = opts.V ?? false;
+    const useJson = getOutputFormat(opts);
     if (verbose) {
       setVerbose(true);
       console.error("[verbose] Verbose logging enabled.");
@@ -793,7 +820,7 @@ program
 
       const fullProfile = { user, customer: customer ?? undefined, customerInfo: customerInfo ?? undefined };
 
-      if (opts.json) {
+      if (useJson) {
         console.log(JSON.stringify(fullProfile));
       } else {
         const userRows: string[][] = [];
@@ -851,20 +878,20 @@ program
       const message = getErrorMessage(err);
       if (isSessionExpiredOrInvalid(err)) {
         clearSession();
-        if (opts.json) {
-          console.log(JSON.stringify({ error: "Session expired, invalid, or timed out (HTTP 440). Run 'auth check' to log in again." }));
+        if (useJson) {
+          console.log(JSON.stringify({ error: "Session expired, invalid, or timed out (HTTP 440). Run 'account check' (or 'auth check') to log in again." }));
         } else {
           console.error(
-            "Session expired, invalid, or timed out (HTTP 440). Please run 'auth check' to log in again."
+            "Session expired, invalid, or timed out (HTTP 440). Please run 'account check' (or 'auth check') to log in again."
           );
         }
       } else {
         if (verbose) {
-          console.error("[verbose] profile failed:", err);
+          console.error("[verbose] account profile failed:", err);
           if (err instanceof Error && err.cause) console.error("[verbose] cause:", err.cause);
           if (err instanceof Error && err.stack) console.error("[verbose] stack:", err.stack);
         }
-        if (opts.json) {
+        if (useJson) {
           console.log(JSON.stringify({ error: message }));
         } else {
           console.error("Error:", message);
@@ -873,5 +900,9 @@ program
       process.exit(1);
     }
   });
+
+program.action(async () => {
+  await runEnvelopeList(undefined, { ...program.opts(), count: 10, unread: false });
+});
 
 program.parse();
