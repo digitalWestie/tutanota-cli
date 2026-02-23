@@ -48,8 +48,10 @@ import { unwrapSingleElementArray } from "./utils/bytes.js";
 
 loadEnv();
 
-function getVerbose(opts: { verbose?: boolean; V?: boolean }): boolean {
-  return opts.verbose ?? opts.V ?? false;
+/** True if the error indicates an expired, invalid, or timed-out session (e.g. HTTP 401 or 440). */
+function isSessionExpiredOrInvalid(err: unknown): boolean {
+  const msg = getErrorMessage(err);
+  return msg.includes("401") || msg.includes("440") || msg.includes("Unauthorized");
 }
 
 /** Run fn on each item with at most `concurrency` in flight; preserves order. */
@@ -162,7 +164,7 @@ authCmd
   .option("--json", "Output result as JSON")
   .option("--verbose, -v", "Verbose logging for debugging")
   .action(async (opts: { json?: boolean; verbose?: boolean; V?: boolean }) => {
-    const verbose = getVerbose(opts);
+    const verbose = opts.V ?? false;
     if (verbose) {
       setVerbose(true);
       console.error("[verbose] Verbose logging enabled.");
@@ -217,7 +219,7 @@ foldersCmd
   .option("--json", "Output as JSON")
   .option("--verbose, -v", "Verbose logging")
   .action(async (opts: { json?: boolean; verbose?: boolean; V?: boolean }) => {
-    const verbose = getVerbose(opts);
+    const verbose = opts.V ?? false
     if (verbose) setVerbose(true);
     try {
       const baseUrl = getApiBaseUrl();
@@ -421,10 +423,10 @@ foldersCmd
       }
     } catch (err) {
       const message = getErrorMessage(err);
-      if (message.includes("401") || message.includes("Unauthorized")) {
+      if (isSessionExpiredOrInvalid(err)) {
         clearSession();
         console.error(
-          "Session expired or invalid. Please run 'auth check' to log in again, then try 'folders list' again."
+          "Session expired, invalid, or timed out (HTTP 440). Please run 'auth check' to log in again, then try 'folders list' again."
         );
       } else {
         if (verbose && err instanceof Error && err.stack) console.error("[verbose] stack:", err.stack);
@@ -437,21 +439,24 @@ foldersCmd
 const mailsCmd = program.command("mails").description("Mail commands");
 
 mailsCmd
-  .command("list <folder-id>")
-  .description("List latest 10 mails in a folder (folder-id from 'folders list')")
+  .command("list [folder-id]")
+  .description("List latest N mails in a folder (default: Inbox; folder-id from 'folders list')")
   .option("--json", "Output as JSON")
   .option("--verbose, -v", "Verbose logging")
-  .option("--count <n>, -c <n>", "Number of mails to list (default: 10, max: 100)")
-  .action(async (folderId: string, opts: { json?: boolean; verbose?: boolean; V?: boolean; count?: number }) => {
-    const verbose = getVerbose(opts);
+  .option("--count, -c <n>", "Number of mails to list (default: 10, max: 100)")
+  .option("--unread, -u", "Show only unread mails")
+  .action(async (folderId: string | undefined, opts: { json?: boolean; verbose?: boolean; V?: boolean; C?: number; count?: number; unread?: boolean; U?: boolean }) => {
+    const verbose = opts.verbose ?? opts.V ?? false;
     if (verbose) setVerbose(true);
-    const count = opts.count != null ? Math.max(1, Math.min(100, opts.count)) : 10;
+    const count = opts.C != null ? Math.max(1, Math.min(100, opts.C)) : 10;
+    const onlyUnread = opts.unread ?? opts.U ?? false;
+
+    if (verbose) {
+      console.error("[verbose] Running with options:", JSON.stringify(opts));
+      console.error("[verbose] count=", count, "onlyUnread=", onlyUnread);
+    }
 
     const folderIdTrimmed = typeof folderId === "string" ? folderId.trim() : "";
-    if (!folderIdTrimmed) {
-      console.error("Error: folder-id is required. Run 'folders list' to see folder ids.");
-      process.exit(1);
-    }
     try {
       const baseUrl = getApiBaseUrl();
       let { result } = await getOrCreateSession(baseUrl, verbose);
@@ -462,8 +467,8 @@ mailsCmd
         userRaw = await loadUser(baseUrl, result.accessToken, result.userId) as Record<string, unknown>;
       } catch (loadErr) {
         const loadMsg = getErrorMessage(loadErr);
-        if ((loadMsg.includes("401") || loadMsg.includes("Unauthorized")) && readSession() != null) {
-          if (verbose) console.error("[verbose] loadUser returned 401; clearing session and retrying with fresh login.");
+        if (isSessionExpiredOrInvalid(loadErr) && readSession() != null) {
+          if (verbose) console.error("[verbose] loadUser returned 401/440; clearing session and retrying with fresh login.");
           clearSession();
           const retry = await getOrCreateSession(baseUrl, verbose);
           result = retry.result;
@@ -586,13 +591,21 @@ mailsCmd
                   ? String(entriesRaw[0])
                   : String(entriesRaw)
               : null;
-          return { id, entriesListId };
+          const folderType = (dec as ServerInstance)["436"];
+          return { id, entriesListId, folderType };
         }
       );
 
-      const folder = folderEntries.find((f) => f.id === folderIdTrimmed);
+      const folder =
+        folderIdTrimmed === ""
+          ? folderEntries.find((f) => String(f.folderType) === "1")
+          : folderEntries.find((f) => f.id === folderIdTrimmed);
       if (folder == null || folder.entriesListId == null) {
-        console.error("Error: Folder not found:", folderIdTrimmed, "(run 'folders list' to see folder ids)");
+        if (folderIdTrimmed === "") {
+          console.error("Error: Inbox folder not found.");
+        } else {
+          console.error("Error: Folder not found:", folderIdTrimmed, "(run 'folders list' to see folder ids)");
+        }
         process.exit(1);
       }
 
@@ -652,7 +665,7 @@ mailsCmd
             subject: String(d["105"] ?? ""),
             senderAddress,
             receivedDate: toDateStr(d["107"]) ?? null,
-            unread: d["109"] === true,
+            unread: d["109"] === true || d["109"] === 1 || d["109"] === "1",
             state: d["108"] != null ? Number(d["108"]) : null,
             confidential: d["426"] === true,
             replyType: d["466"] != null ? Number(d["466"]) : null,
@@ -672,11 +685,13 @@ mailsCmd
         }
       );
 
+      const toShow = onlyUnread ? mails.filter((m) => m.unread) : mails;
+
       if (opts.json) {
-        console.log(JSON.stringify({ mails }));
+        console.log(JSON.stringify({ mails: toShow }));
       } else {
         console.log("Subject\tDate\tFrom\tRead\tState");
-        for (const m of mails) {
+        for (const m of toShow) {
           const fromPart = m.senderAddress != null ? m.senderAddress : "";
           let statePart = "Unknown";
           if (m.state === 0) statePart = "Draft";
@@ -685,7 +700,7 @@ mailsCmd
           if (m.state === 3) statePart = "Sending";
 
           const subjectPart = m.subject.replace(/\r\n|\r|\n/g, " ").trim();
-          const mainPart = `${subjectPart}\t${m.receivedDate ?? ""}\t${fromPart}\t${m.unread ? "Read" : "Unread"}\t${statePart}`;
+          const mainPart = `${subjectPart}\t${m.receivedDate ?? ""}\t${fromPart}\t${m.unread ? "Unread" : "Read"}\t${statePart}`;
           console.log(mainPart);
 
           const meta: string[] = [
@@ -713,10 +728,10 @@ mailsCmd
       }
     } catch (err) {
       const message = getErrorMessage(err);
-      if (message.includes("401") || message.includes("Unauthorized")) {
+      if (isSessionExpiredOrInvalid(err)) {
         clearSession();
         console.error(
-          "Session expired or invalid. Please run 'auth check' to log in again, then try 'mails list' again."
+          "Session expired, invalid, or timed out (HTTP 440). Please run 'auth check' to log in again, then try 'mails list' again."
         );
       } else {
         if (verbose && err instanceof Error && err.stack) console.error("[verbose] stack:", err.stack);
@@ -732,7 +747,7 @@ program
   .option("--json", "Output result as JSON")
   .option("--verbose, -v", "Verbose logging for debugging")
   .action(async (opts: { json?: boolean; verbose?: boolean; V?: boolean }) => {
-    const verbose = getVerbose(opts);
+    const verbose = opts.V ?? false;
     if (verbose) {
       setVerbose(true);
       console.error("[verbose] Verbose logging enabled.");
@@ -834,15 +849,26 @@ program
       }
     } catch (err) {
       const message = getErrorMessage(err);
-      if (verbose) {
-        console.error("[verbose] profile failed:", err);
-        if (err instanceof Error && err.cause) console.error("[verbose] cause:", err.cause);
-        if (err instanceof Error && err.stack) console.error("[verbose] stack:", err.stack);
-      }
-      if (opts.json) {
-        console.log(JSON.stringify({ error: message }));
+      if (isSessionExpiredOrInvalid(err)) {
+        clearSession();
+        if (opts.json) {
+          console.log(JSON.stringify({ error: "Session expired, invalid, or timed out (HTTP 440). Run 'auth check' to log in again." }));
+        } else {
+          console.error(
+            "Session expired, invalid, or timed out (HTTP 440). Please run 'auth check' to log in again."
+          );
+        }
       } else {
-        console.error("Error:", message);
+        if (verbose) {
+          console.error("[verbose] profile failed:", err);
+          if (err instanceof Error && err.cause) console.error("[verbose] cause:", err.cause);
+          if (err instanceof Error && err.stack) console.error("[verbose] stack:", err.stack);
+        }
+        if (opts.json) {
+          console.log(JSON.stringify({ error: message }));
+        } else {
+          console.error("Error:", message);
+        }
       }
       process.exit(1);
     }

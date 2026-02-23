@@ -49,7 +49,7 @@ After a successful login, the CLI stores a session in a file so that later comma
 
 ### `auth check`
 
-Verifies that you can log in (or that your stored session is still valid). On success, prints one line of tab-separated columns: Status, UserId, SessionId, UsedStoredSession. If a valid session is already stored, it may succeed without prompting for credentials.
+Verifies that you can log in (or that your stored session is still valid). On success, prints one line of tab-separated columns: Status, UserId, Session ID, Stored?, Storage Path. If a valid session is already stored, it may succeed without prompting for credentials.
 
 ```bash
 node dist/cli.js auth check
@@ -103,19 +103,21 @@ Options:
 - `--json` – Output as JSON: `{ "folders": [ { "name": "...", "id": "...", "folderType": ... }, ... ] }`.
 - `--verbose`, `-v` – Verbose logging (request URLs, key chain summary, and failure details when relevant).
 
-### `mails list <folder-id>`
+### `mails list [folder-id]`
 
-Lists the latest 10 mails in a folder. Use the folder id from `folders list` (e.g. `L2eum1h-1k-0` for Inbox). For each mail, shows subject, date, and unread flag. Unread mails are prefixed with `*` in human-readable output.
+Lists the latest N mails in a folder. **Folder is optional and defaults to Inbox** when omitted; use a folder id from `folders list` (e.g. `L2eum1h-1k-0`) to list another folder. For each mail, shows subject, date, from, and unread flag. Unread mails are prefixed with `*` in human-readable output.
 
 ```bash
+node dist/cli.js mails list
+npm start -- mails list
 node dist/cli.js mails list L2eum1h-1k-0
-npm start -- mails list L2eum1h-1k-0
 ```
 
 Options:
 
 - `--json` – Output as JSON: `{ "mails": [ { "subject": "...", "receivedDate": "...", "unread": true|false, "id": "..." }, ... ] }`.
 - `--verbose`, `-v` – Verbose logging for debugging.
+- `--unread`, `-u` – Show only unread mails (filters the listed mails client-side).
 
 ## Limitations
 
