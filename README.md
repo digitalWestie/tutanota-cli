@@ -47,7 +47,7 @@ After a successful login, the CLI stores a session in a file so that later comma
 
 ## Global options
 
-- `--output`, `-o` **&lt;format&gt;** – Output format: `json` or `plain` (default: `plain`). Applies to commands that produce structured output. You can also use per-command `--json` on individual commands for the same effect.
+- `--output`, `-o` **&lt;format&gt;** – Output format: `pretty`, `tsv`, or `json` (default: `pretty`). **pretty** shows aligned columns for easier reading in the terminal; **tsv** is tab-separated for spreadsheet paste and scripting. Use `--output tsv` when piping or copying into a spreadsheet. You can also use per-command `--json` on individual commands for JSON output.
 
 ## Default behavior
 
@@ -57,7 +57,7 @@ Running the CLI with **no subcommand** (e.g. `node dist/cli.js` or `npm start`) 
 
 ### `account check`
 
-Verifies that you can log in (or that your stored session is still valid). On success, prints one line of tab-separated columns: Status, UserId, Session ID, Stored?, Storage Path. If a valid session is already stored, it may succeed without prompting for credentials. Also available as `auth check`.
+Verifies that you can log in (or that your stored session is still valid). On success, prints session info (Status, UserId, Session ID, Stored?, Storage Path) in the default output format. If a valid session is already stored, it may succeed without prompting for credentials. Also available as `auth check`.
 
 ```bash
 node dist/cli.js account check

@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-import { Command } from "commander";
+import { Command, Option } from "commander";
 import { loadEnv, getApiBaseUrl, getCredentials } from "./config.js";
 import {
   getPassphraseKeyForSession,
@@ -155,11 +155,58 @@ program
   .name("tutanota-cli")
   .description("CLI to authenticate with and export mail from Tutanota")
   .version("0.1.0")
-  .option("--output, -o <format>", "Output format: json or plain", "plain");
+  .addOption(
+    new Option("--output, -o <format>", "Output format: pretty, tsv, or json (default: pretty)")
+      .choices(["pretty", "tsv", "json"])
+      .default("pretty")
+  );
 
 function getOutputFormat(cmdOpts: { json?: boolean }): boolean {
   const o = program.opts() as { output?: string };
   return o.output === "json" || cmdOpts.json === true;
+}
+
+function getPlainFormat(): "pretty" | "tsv" {
+  const o = program.opts() as { output?: string };
+  const format = o.output ?? "pretty";
+  if (format !== "pretty" && format !== "tsv" && format !== "json") {
+    console.error(`Unknown output format: ${format}. Use pretty, tsv, or json.`);
+    process.exit(1);
+  }
+  return format === "tsv" ? "tsv" : "pretty";
+}
+
+const MAX_COL_WIDTH = 80;
+
+function printTable(rows: string[][], format: "pretty" | "tsv"): void {
+  if (rows.length === 0) return;
+  if (format === "tsv") {
+    for (const row of rows) console.log(row.join("\t"));
+    return;
+  }
+  const cols = rows[0].length;
+  const widths: number[] = [];
+  for (let j = 0; j < cols; j++) {
+    let max = 0;
+    for (const row of rows) {
+      const len = (row[j] ?? "").length;
+      max = Math.min(Math.max(max, len), MAX_COL_WIDTH);
+    }
+    widths[j] = max;
+  }
+  const termCols = typeof process.stdout.columns === "number" ? process.stdout.columns : null;
+  const totalWidth = widths.reduce((a, b) => a + b, 0) + (cols - 1) * 2;
+  if (termCols != null && totalWidth > termCols && cols > 0) {
+    const maxPerCol = Math.max(10, Math.floor(termCols / cols) - 2);
+    for (let j = 0; j < cols; j++) widths[j] = Math.min(widths[j], maxPerCol);
+  }
+  for (const row of rows) {
+    const parts = row.map((cell, j) => {
+      const s = (cell ?? "").slice(0, widths[j]);
+      return s.padEnd(widths[j]);
+    });
+    console.log(parts.join("  "));
+  }
 }
 
 const accountCmd = program.command("account").alias("auth").description("Account and session commands");
@@ -191,8 +238,11 @@ accountCmd
           })
         );
       } else {
-        console.log("Status\tUserId\tSession ID\tStored?\tStorage Path");
-        console.log(`Authenticated\t${result.userId}\t${result.sessionId.join("/")}\t${usedStoredSession}\t${getSessionPath()}`);
+        const rows = [
+          ["Status", "UserId", "Session ID", "Stored?", "Storage Path"],
+          ["Authenticated", String(result.userId), result.sessionId.join("/"), String(usedStoredSession), getSessionPath()],
+        ];
+        printTable(rows, getPlainFormat());
       }
     } catch (err) {
       const message = getErrorMessage(err);
@@ -423,10 +473,11 @@ foldersCmd
       if (getOutputFormat(opts)) {
         console.log(JSON.stringify({ folders }));
       } else {
-        console.log("Name\tId\tFolderType");
-        for (const f of folders) {
-          console.log(`${f.name}\t${f.id}\t${f.folderType}`);
-        }
+        const rows = [
+          ["Name", "Id", "FolderType"],
+          ...folders.map((f) => [f.name, f.id, String(f.folderType)]),
+        ];
+        printTable(rows, getPlainFormat());
       }
     } catch (err) {
       const message = getErrorMessage(err);
@@ -703,40 +754,43 @@ async function runEnvelopeList(
       if (useJson) {
         console.log(JSON.stringify({ mails: toShow }));
       } else {
-        console.log("Subject\tDate\tFrom\tRead\tState");
-        for (const m of toShow) {
+        const header = ["Subject", "Date", "From", "Read", "State"];
+        const dataRows = toShow.map((m) => {
           const fromPart = m.senderAddress != null ? m.senderAddress : "";
           let statePart = "Unknown";
           if (m.state === 0) statePart = "Draft";
           if (m.state === 1) statePart = "Sent";
           if (m.state === 2) statePart = "Received";
           if (m.state === 3) statePart = "Sending";
-
           const subjectPart = m.subject.replace(/\r\n|\r|\n/g, " ").trim();
-          const mainPart = `${subjectPart}\t${m.receivedDate ?? ""}\t${fromPart}\t${m.unread ? "Unread" : "Read"}\t${statePart}`;
-          console.log(mainPart);
-
-          const meta: string[] = [
-            `id=${m.id}`,
-            `from=${m.senderAddress ?? ""}`,
-            `state=${m.state ?? ""}`,
-            `unread=${m.unread}`,
-            `confidential=${m.confidential}`,
-            `recipientCount=${m.recipientCount ?? ""}`,
-            `replyType=${m.replyType ?? ""}`,
-            `method=${m.method ?? ""}`,
-            `processingState=${m.processingState ?? ""}`,
-            `processNeeded=${m.processNeeded}`,
-          ];
-          if (m.sendAt != null) meta.push(`sendAt=${m.sendAt}`);
-          if (m.movedTime != null) meta.push(`movedTime=${m.movedTime}`);
-          if (m.phishingStatus != null) meta.push(`phishingStatus=${m.phishingStatus}`);
-          if (m.authStatus != null) meta.push(`authStatus=${m.authStatus}`);
-          if (m.differentEnvelopeSender) meta.push(`differentEnvelopeSender=${m.differentEnvelopeSender}`);
-          if (m.listUnsubscribe) meta.push("listUnsubscribe=true");
-          if (m.encryptionAuthStatus != null) meta.push(`encryptionAuthStatus=${m.encryptionAuthStatus}`);
-          if (m.keyVerificationState != null) meta.push(`keyVerificationState=${m.keyVerificationState}`);
-          if (verbose) console.log(`    ${meta.join("  ")}`);
+          return [subjectPart, m.receivedDate ?? "", fromPart, m.unread ? "Unread" : "Read", statePart];
+        });
+        const rows = [header, ...dataRows];
+        printTable(rows, getPlainFormat());
+        if (verbose) {
+          for (const m of toShow) {
+            const meta: string[] = [
+              `id=${m.id}`,
+              `from=${m.senderAddress ?? ""}`,
+              `state=${m.state ?? ""}`,
+              `unread=${m.unread}`,
+              `confidential=${m.confidential}`,
+              `recipientCount=${m.recipientCount ?? ""}`,
+              `replyType=${m.replyType ?? ""}`,
+              `method=${m.method ?? ""}`,
+              `processingState=${m.processingState ?? ""}`,
+              `processNeeded=${m.processNeeded}`,
+            ];
+            if (m.sendAt != null) meta.push(`sendAt=${m.sendAt}`);
+            if (m.movedTime != null) meta.push(`movedTime=${m.movedTime}`);
+            if (m.phishingStatus != null) meta.push(`phishingStatus=${m.phishingStatus}`);
+            if (m.authStatus != null) meta.push(`authStatus=${m.authStatus}`);
+            if (m.differentEnvelopeSender) meta.push(`differentEnvelopeSender=${m.differentEnvelopeSender}`);
+            if (m.listUnsubscribe) meta.push("listUnsubscribe=true");
+            if (m.encryptionAuthStatus != null) meta.push(`encryptionAuthStatus=${m.encryptionAuthStatus}`);
+            if (m.keyVerificationState != null) meta.push(`keyVerificationState=${m.keyVerificationState}`);
+            console.log(`    ${meta.join("  ")}`);
+          }
         }
       }
     } catch (err) {
@@ -823,6 +877,7 @@ accountCmd
       if (useJson) {
         console.log(JSON.stringify(fullProfile));
       } else {
+        const plainFormat = getPlainFormat();
         const userRows: string[][] = [];
         if (user.accountType != null) userRows.push(["accountType", String(user.accountType)]);
         if (user.enabled != null) userRows.push(["enabled", String(user.enabled)]);
@@ -830,8 +885,7 @@ accountCmd
         if (user.requirePasswordUpdate != null) userRows.push(["requirePasswordUpdate", String(user.requirePasswordUpdate)]);
         if (user.customer != null) userRows.push(["customer", String(user.customer)]);
         console.log("User");
-        console.log("Key\tValue");
-        for (const row of userRows) console.log(row.join("\t"));
+        printTable([["Key", "Value"], ...userRows], plainFormat);
 
         if (customer != null) {
           const customerRows: string[][] = [];
@@ -841,8 +895,7 @@ accountCmd
           if (customer.orderProcessingAgreementNeeded != null)
             customerRows.push(["orderProcessingAgreementNeeded", String(customer.orderProcessingAgreementNeeded)]);
           console.log("\nCustomer");
-          console.log("Key\tValue");
-          for (const row of customerRows) console.log(row.join("\t"));
+          printTable([["Key", "Value"], ...customerRows], plainFormat);
         }
 
         if (customerInfo != null) {
@@ -870,8 +923,7 @@ accountCmd
             });
           }
           console.log("\nCustomer info");
-          console.log("Key\tValue");
-          for (const row of infoRows) console.log(row.join("\t"));
+          printTable([["Key", "Value"], ...infoRows], plainFormat);
         }
       }
     } catch (err) {
