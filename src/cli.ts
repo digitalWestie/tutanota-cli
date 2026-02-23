@@ -161,14 +161,18 @@ program
       .default("pretty")
   );
 
-function getOutputFormat(cmdOpts: { json?: boolean }): boolean {
-  const o = program.opts() as { output?: string };
-  return o.output === "json" || cmdOpts.json === true;
+/** Get the value of the global --output / -o option (Commander may store short form as .O or .o). */
+function getOutputOption(): string {
+  const o = program.opts() as { output?: string; o?: string; O?: string };
+  return o.output ?? o.o ?? o.O ?? "pretty";
+}
+
+function getOutputFormat(): boolean {
+  return getOutputOption() === "json";
 }
 
 function getPlainFormat(): "pretty" | "tsv" {
-  const o = program.opts() as { output?: string };
-  const format = o.output ?? "pretty";
+  const format = getOutputOption();
   if (format !== "pretty" && format !== "tsv" && format !== "json") {
     console.error(`Unknown output format: ${format}. Use pretty, tsv, or json.`);
     process.exit(1);
@@ -214,11 +218,10 @@ const accountCmd = program.command("account").alias("auth").description("Account
 accountCmd
   .command("check")
   .description("Verify credentials by logging in; prints session info on success")
-  .option("--json", "Output result as JSON")
   .option("--verbose, -v", "Verbose logging for debugging")
-  .action(async (opts: { json?: boolean; verbose?: boolean; V?: boolean }) => {
+  .action(async (opts: { verbose?: boolean; V?: boolean }) => {
     const verbose = opts.V ?? false;
-    const useJson = getOutputFormat(opts);
+    const useJson = getOutputFormat();
     if (verbose) {
       setVerbose(true);
       console.error("[verbose] Verbose logging enabled.");
@@ -251,7 +254,7 @@ accountCmd
         if (err instanceof Error && err.cause) console.error("[verbose] cause:", err.cause);
         if (err instanceof Error && err.stack) console.error("[verbose] stack:", err.stack);
       }
-      if (getOutputFormat(opts)) {
+      if (getOutputFormat()) {
         console.log(JSON.stringify({ ok: false, error: message }));
       } else {
         console.error("Error:", message);
@@ -273,9 +276,8 @@ const foldersCmd = program.command("folders").description("Mail folder commands"
 foldersCmd
   .command("list")
   .description("List mail folders (requires password when using stored session)")
-  .option("--json", "Output as JSON")
   .option("--verbose, -v", "Verbose logging")
-  .action(async (opts: { json?: boolean; verbose?: boolean; V?: boolean }) => {
+  .action(async (opts: { verbose?: boolean; V?: boolean }) => {
     const verbose = opts.V ?? false
     if (verbose) setVerbose(true);
     try {
@@ -470,7 +472,7 @@ foldersCmd
         }
       );
 
-      if (getOutputFormat(opts)) {
+      if (getOutputFormat()) {
         console.log(JSON.stringify({ folders }));
       } else {
         const rows = [
@@ -495,7 +497,6 @@ foldersCmd
   });
 
 type EnvelopeListOptions = {
-  json?: boolean;
   output?: string;
   verbose?: boolean;
   V?: boolean;
@@ -513,7 +514,7 @@ async function runEnvelopeList(
   if (verbose) setVerbose(true);
   const count = options.count ?? (options.C != null ? Math.max(1, Math.min(100, options.C)) : 10);
   const onlyUnread = options.unread ?? options.U ?? false;
-  const useJson = getOutputFormat(options);
+  const useJson = getOutputFormat();
 
   if (verbose) {
     console.error("[verbose] Running with options:", JSON.stringify(options));
@@ -754,7 +755,7 @@ async function runEnvelopeList(
       if (useJson) {
         console.log(JSON.stringify({ mails: toShow }));
       } else {
-        const header = ["Subject", "Date", "From", "Read", "State"];
+        const header = ["Subject", "Date", "From", "Unread", "State"];
         const dataRows = toShow.map((m) => {
           const fromPart = m.senderAddress != null ? m.senderAddress : "";
           let statePart = "Unknown";
@@ -763,7 +764,7 @@ async function runEnvelopeList(
           if (m.state === 2) statePart = "Received";
           if (m.state === 3) statePart = "Sending";
           const subjectPart = m.subject.replace(/\r\n|\r|\n/g, " ").trim();
-          return [subjectPart, m.receivedDate ?? "", fromPart, m.unread ? "Unread" : "Read", statePart];
+          return [subjectPart, m.receivedDate ?? "", fromPart, m.unread ? "Yes" : "No", statePart];
         });
         const rows = [header, ...dataRows];
         printTable(rows, getPlainFormat());
@@ -813,22 +814,20 @@ const envelopeCmd = program.command("envelope").alias("emails").description("Env
 envelopeCmd
   .command("list [folder-id]")
   .description("List latest N envelopes in a folder (default: Inbox; folder-id from 'folders list')")
-  .option("--json", "Output as JSON")
   .option("--verbose, -v", "Verbose logging")
   .option("--count, -c <n>", "Number of envelopes to list (default: 10, max: 100)")
   .option("--unread, -u", "Show only unread")
-  .action(async (folderId: string | undefined, opts: { json?: boolean; verbose?: boolean; V?: boolean; C?: number; count?: number; unread?: boolean; U?: boolean }) => {
+  .action(async (folderId: string | undefined, opts: { verbose?: boolean; V?: boolean; C?: number; count?: number; unread?: boolean; U?: boolean }) => {
     await runEnvelopeList(folderId, { ...program.opts(), ...opts, count: opts.C != null ? Math.max(1, Math.min(100, opts.C)) : opts.count ?? 10 });
   });
 
 accountCmd
   .command("profile")
   .description("Log in and show your user profile (account type, enabled, etc.)")
-  .option("--json", "Output result as JSON")
   .option("--verbose, -v", "Verbose logging for debugging")
-  .action(async (opts: { json?: boolean; verbose?: boolean; V?: boolean }) => {
+  .action(async (opts: { verbose?: boolean; V?: boolean }) => {
     const verbose = opts.V ?? false;
-    const useJson = getOutputFormat(opts);
+    const useJson = getOutputFormat();
     if (verbose) {
       setVerbose(true);
       console.error("[verbose] Verbose logging enabled.");

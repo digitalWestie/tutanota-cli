@@ -47,7 +47,7 @@ After a successful login, the CLI stores a session in a file so that later comma
 
 ## Global options
 
-- `--output`, `-o` **&lt;format&gt;** – Output format: `pretty`, `tsv`, or `json` (default: `pretty`). **pretty** shows aligned columns for easier reading in the terminal; **tsv** is tab-separated for spreadsheet paste and scripting. Use `--output tsv` when piping or copying into a spreadsheet. You can also use per-command `--json` on individual commands for JSON output.
+- `--output`, `-o` **&lt;format&gt;** – Output format: `pretty`, `tsv`, or `json` (default: `pretty`). **pretty** shows aligned columns for easier reading in the terminal; **tsv** is tab-separated for spreadsheet paste and scripting. Use `--output tsv` when piping or copying into a spreadsheet; use `--output json` for machine-readable output.
 
 ## Default behavior
 
@@ -67,8 +67,7 @@ npm start -- account check
 
 Options:
 
-- `--json` – Output machine-readable JSON: `{ "ok": true, "userId": "...", "sessionId": ["...", "..."] }` on success, or `{ "ok": false, "error": "..." }` on failure.
-- `--verbose`, `-v` – Verbose logging (request URLs, errors with cause/stack) for debugging.
+- `--verbose`, `-v` – Verbose logging (request URLs, errors with cause/stack) for debugging. Use global `--output json` for JSON.
 
 ### `account logout`
 
@@ -83,19 +82,18 @@ npm start -- account logout
 
 Logs in (or uses the stored session) and loads your user profile. Human-readable output is three tab-separated tables: **User** (Key, Value), **Customer** (Key, Value), and **Customer info** (Key, Value). Each table has a section title line, then a header line, then one row per field. Also available as `auth profile`.
 
-With `--json`, the full structure is output as JSON. With `--verbose`, extra debug logs (e.g. request URLs) are printed.
+With global `--output json`, the full structure is output as JSON. With `--verbose`, extra debug logs (e.g. request URLs) are printed.
 
 ```bash
 node dist/cli.js account profile
 npm start -- account profile
 ```
 
-Example output (without `--json`): section title "User", then "Key\tValue", then rows; then "Customer" and its table; then "Customer info" and its table (including domainInfos summary and domain_0, domain_1, etc.).
+Example output (with default output): section title "User", then "Key\tValue", then rows; then "Customer" and its table; then "Customer info" and its table (including domainInfos summary and domain_0, domain_1, etc.).
 
 Options:
 
-- `--json` – Output profile as JSON.
-- `--verbose`, `-v` – Verbose logging for debugging.
+- `--verbose`, `-v` – Verbose logging for debugging. Use global `--output json` for JSON.
 
 ### `folders list`
 
@@ -108,8 +106,7 @@ npm start -- folders list
 
 Options:
 
-- `--json` – Output as JSON: `{ "folders": [ { "name": "...", "id": "...", "folderType": ... }, ... ] }`.
-- `--verbose`, `-v` – Verbose logging (request URLs, key chain summary, and failure details when relevant).
+- `--verbose`, `-v` – Verbose logging (request URLs, key chain summary, and failure details when relevant). Use global `--output json` for JSON.
 
 ### `envelope list [folder-id]`
 
@@ -123,10 +120,9 @@ node dist/cli.js envelope list L2eum1h-1k-0
 
 Options:
 
-- `--json` – Output as JSON: `{ "mails": [ { "subject": "...", "receivedDate": "...", "unread": true|false, "id": "..." }, ... ] }`.
 - `--verbose`, `-v` – Verbose logging for debugging.
 - `--count`, `-c` – Number of envelopes to list (default: 10, max: 100).
-- `--unread`, `-u` – Show only unread (filters client-side).
+- `--unread`, `-u` – Show only unread (filters client-side). Use global `--output json` for JSON.
 
 ## Limitations
 
