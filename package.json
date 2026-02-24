@@ -13,7 +13,13 @@
     "auth:check": "node dist/cli.js auth check",
     "test": "npm run build && node --test 'dist/**/*.test.js'"
   },
-  "keywords": ["tutanota", "tuta", "cli", "export", "email"],
+  "keywords": [
+    "tutanota",
+    "tuta",
+    "cli",
+    "export",
+    "email"
+  ],
   "license": "GPL-3.0",
   "engines": {
     "node": ">=18"
@@ -21,9 +27,10 @@
   "dependencies": {
     "@tutao/tutanota-crypto": "327.260210.0",
     "@tutao/tutanota-utils": "327.260210.0",
+    "argon2": "^0.44.0",
     "commander": "^12.0.0",
     "dotenv": "^16.4.5",
-    "argon2": "^0.44.0",
+    "kleur": "^4.1.5",
     "read": "^1.0.7",
     "undici": "^7.11.0"
   },

@@ -49,6 +49,10 @@ After a successful login, the CLI stores a session in a file so that later comma
 
 - `--output`, `-o` **&lt;format&gt;** – Output format: `pretty`, `tsv`, or `json` (default: `pretty`). **pretty** shows aligned columns for easier reading in the terminal; **tsv** is tab-separated for spreadsheet paste and scripting. Use `--output tsv` when piping or copying into a spreadsheet; use `--output json` for machine-readable output.
 
+### Colours and formatting
+
+In **pretty** output only, the CLI uses a bold table header and a line under the header. Colours are not used for `tsv` or `json`. Output respects your environment: colour is disabled when stdout is not a TTY (e.g. when piping), and when `NO_COLOR` is set. Set `FORCE_COLOR=1` to enable colour when piping. There is no CLI flag for colour; behaviour is driven by these environment variables and TTY detection.
+
 ## Default behavior
 
 Running the CLI with **no subcommand** (e.g. `node dist/cli.js` or `npm start`) lists the default folder (Inbox), same as `envelope list` with default options.
@@ -108,14 +112,15 @@ Options:
 
 - `--verbose`, `-v` – Verbose logging (request URLs, key chain summary, and failure details when relevant). Use global `--output json` for JSON.
 
-### `envelope list [folder-id]`
+### `envelope list [folder]`
 
-Lists the latest N envelopes (message headers) in a folder. **Folder is optional and defaults to Inbox** when omitted; use a folder id from `folders list` (e.g. `L2eum1h-1k-0`) to list another folder. For each envelope, shows subject, date, from, and unread flag. Unread items are prefixed with `*` in human-readable output. Also available as `emails list`.
+Lists the latest N envelopes (message headers) in a folder. **Folder is optional and defaults to Inbox** when omitted; use a folder id or folder name from `folders list` (e.g. `L2eum1h-1k-0` or `Inbox`, `Sent`) to list another folder. For each envelope, shows subject, date, from, and unread flag. Unread items are prefixed with `*` in human-readable output. Also available as `emails list`.
 
 ```bash
 node dist/cli.js envelope list
 npm start -- envelope list
 node dist/cli.js envelope list L2eum1h-1k-0
+node dist/cli.js envelope list Inbox
 ```
 
 Options:
@@ -123,6 +128,7 @@ Options:
 - `--verbose`, `-v` – Verbose logging for debugging.
 - `--count`, `-c` – Number of envelopes to list (default: 10, max: 100).
 - `--unread`, `-u` – Show only unread (filters client-side). Use global `--output json` for JSON.
+- `--cursor <id>` – Cursor for the next page (older mails). With `--output json`, the response includes `nextCursor` when more mail is available; use that value as `--cursor` on the next run. With pretty output, a one-line hint on a separate line after the table shows a copy-pasteable command for the next page when applicable. TSV output does not include cursor or hint.
 
 ## Limitations
 

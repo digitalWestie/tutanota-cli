@@ -19,6 +19,19 @@ const SYSTEM_FOLDER_DISPLAY_NAMES: Record<string, string> = {
   "10": "Scheduled",
 };
 
+/**
+ * Returns the display name for a decrypted MailSet instance (e.g. "Inbox", "Sent", or the decrypted name).
+ * Shared by folders list and envelope list for consistent folder resolution by name.
+ */
+export function getFolderDisplayName(dec: ServerInstance): string {
+  const name = ((dec["435"] ?? "") as string) || "";
+  const folderTypeStr = String(dec["436"] ?? "");
+  return String(name).trim() !== ""
+    ? String(name)
+    : SYSTEM_FOLDER_DISPLAY_NAMES[folderTypeStr] ??
+        (folderTypeStr === "8" ? "Label (no name)" : folderTypeStr === "0" ? "(no name)" : String(name) || "(no name)");
+}
+
 export function registerFoldersCommands(
   program: Command,
   getOpts: () => Record<string, unknown>
@@ -123,11 +136,7 @@ export function registerFoldersCommands(
               : String(idRaw ?? "");
             const folderType = (dec as ServerInstance)["436"];
             const folderTypeStr = String(folderType ?? "");
-            const displayName =
-              String(name).trim() !== ""
-                ? String(name)
-                : SYSTEM_FOLDER_DISPLAY_NAMES[folderTypeStr] ??
-                  (folderTypeStr === "8" ? "Label (no name)" : folderTypeStr === "0" ? "(no name)" : String(name) || "(no name)");
+            const displayName = getFolderDisplayName(dec as ServerInstance);
             if (verbose && (folderTypeStr === "0" || folderTypeStr === "8") && String(name).trim() === "") {
               console.error(
                 "[verbose] Custom/label folder with empty name:",

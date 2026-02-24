@@ -1,5 +1,6 @@
-import { describe, test } from "node:test";
+import { describe, test, before, after } from "node:test";
 import assert from "node:assert/strict";
+import kleur from "kleur";
 import {
   getOutputOption,
   getOutputFormat,
@@ -83,6 +84,15 @@ describe("output", () => {
   });
 
   describe("printTable", () => {
+    let kleurEnabled: boolean;
+    before(() => {
+      kleurEnabled = kleur.enabled;
+      kleur.enabled = false;
+    });
+    after(() => {
+      kleur.enabled = kleurEnabled;
+    });
+
     test("does nothing when rows is empty", () => {
       const logCalls: string[] = [];
       const originalLog = console.log;
@@ -129,11 +139,12 @@ describe("output", () => {
           ],
           "pretty"
         );
-        assert.equal(logCalls.length, 3);
+        assert.equal(logCalls.length, 4);
         // First column width 5 (max of Name=4, Inbox=5, Sent=4), second width 3 (Id, abc, x)
         assert.equal(logCalls[0], "Name   Id ");
-        assert.equal(logCalls[1], "Inbox  abc"); // "abc" is already length 3, no trailing pad
-        assert.equal(logCalls[2], "Sent   x  ");
+        assert.equal(logCalls[1], "-----  ---"); // separator under header
+        assert.equal(logCalls[2], "Inbox  abc"); // "abc" is already length 3, no trailing pad
+        assert.equal(logCalls[3], "Sent   x  ");
       } finally {
         console.log = originalLog;
       }

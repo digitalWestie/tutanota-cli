@@ -2,6 +2,8 @@
  * Output format helpers. All functions take opts (e.g. program.opts()) so there is no Commander dependency.
  */
 
+import kleur from "kleur";
+
 export type OutputOpts = { output?: string; o?: string; O?: string };
 
 export function getOutputOption(opts: OutputOpts): string {
@@ -45,11 +47,18 @@ export function printTable(rows: string[][], format: "pretty" | "tsv"): void {
     const maxPerCol = Math.max(10, Math.floor(termCols / cols) - 2);
     for (let j = 0; j < cols; j++) widths[j] = Math.min(widths[j], maxPerCol);
   }
-  for (const row of rows) {
+  for (let i = 0; i < rows.length; i++) {
+    const row = rows[i];
+    const isHeader = i === 0;
     const parts = row.map((cell, j) => {
       const s = (cell ?? "").slice(0, widths[j]);
-      return s.padEnd(widths[j]);
+      const padded = s.padEnd(widths[j]);
+      return isHeader ? kleur.bold(padded) : padded;
     });
     console.log(parts.join("  "));
+    if (isHeader && rows.length > 1) {
+      const separator = widths.map((w) => "-".repeat(w)).join("  ");
+      console.log(separator);
+    }
   }
 }

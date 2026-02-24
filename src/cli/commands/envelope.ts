@@ -1,4 +1,5 @@
 import type { Command } from "commander";
+import kleur from "kleur";
 import { getApiBaseUrl } from "../../config.js";
 import { loadUser } from "../../auth/login.js";
 import { getErrorMessage, setVerbose } from "../../logger.js";
@@ -14,6 +15,7 @@ import { unwrapSingleElementArray } from "../../utils/bytes.js";
 import * as context from "../context.js";
 import * as output from "../output.js";
 import * as mailbox from "../mailbox.js";
+import { getFolderDisplayName } from "./folders.js";
 
 export interface EnvelopeListOptions {
   output?: string;
@@ -23,6 +25,7 @@ export interface EnvelopeListOptions {
   C?: number;
   unread?: boolean;
   U?: boolean;
+  cursor?: string;
 }
 
 export async function runEnvelopeList(
@@ -109,34 +112,62 @@ export async function runEnvelopeList(
                 : String(entriesRaw)
             : null;
         const folderType = (dec as ServerInstance)["436"];
-        return { id, entriesListId, folderType };
+        const name = getFolderDisplayName(dec as ServerInstance);
+        return { id, entriesListId, folderType, name };
       }
     );
 
-    const folder =
-      folderIdTrimmed === ""
-        ? folderEntries.find((f) => String(f.folderType) === "1")
-        : folderEntries.find((f) => f.id === folderIdTrimmed);
+    let folder: (typeof folderEntries)[number] | undefined;
+    if (folderIdTrimmed === "") {
+      folder = folderEntries.find((f) => String(f.folderType) === "1");
+    } else {
+      folder = folderEntries.find((f) => f.id === folderIdTrimmed);
+      if (folder == null) {
+        const byName = folderEntries.filter(
+          (f) => f.name.trim().toLowerCase() === folderIdTrimmed.trim().toLowerCase()
+        );
+        if (byName.length === 1) {
+          folder = byName[0];
+        } else if (byName.length > 1) {
+          console.error("Error: Multiple folders match that name; use a folder id (run 'folders list').");
+          process.exit(1);
+        }
+      }
+    }
     if (folder == null || folder.entriesListId == null) {
       if (folderIdTrimmed === "") {
         console.error("Error: Inbox folder not found.");
       } else {
-        console.error("Error: Folder not found:", folderIdTrimmed, "(run 'folders list' to see folder ids)");
+        console.error("Error: Folder not found:", folderIdTrimmed, "(run 'folders list' to see folder ids and names)");
       }
       process.exit(1);
     }
 
+    const startId = options.cursor != null && options.cursor.trim() !== "" ? options.cursor.trim() : GENERATED_MAX_ID;
     const mailSetEntryList = await loadRange<Record<string, unknown>>(
       baseUrl,
       MAIL_SET_ENTRY,
       folder.entriesListId,
       {
         accessToken: result.accessToken,
-        start: GENERATED_MAX_ID,
+        start: startId,
         count: count,
         reverse: true,
       }
     );
+
+    let nextCursor: string | undefined;
+    if (mailSetEntryList.length === count && mailSetEntryList.length > 0) {
+      const lastEntry = mailSetEntryList[mailSetEntryList.length - 1] as Record<string, unknown>;
+      const elementIdFrom = (idRaw: unknown): string | undefined => {
+        if (idRaw == null) return undefined;
+        if (Array.isArray(idRaw) && idRaw.length >= 2) return String(idRaw[idRaw.length - 1] ?? "");
+        if (Array.isArray(idRaw) && idRaw.length === 1) return String(idRaw[0] ?? "");
+        const s = String(idRaw);
+        return s === "" ? undefined : s;
+      };
+      nextCursor = elementIdFrom(lastEntry["1452"]) ?? elementIdFrom(lastEntry["431"]) ?? elementIdFrom(lastEntry["_id"]);
+    }
 
     const MAIL_LOAD_CONCURRENCY = 5;
     const mails = await context.mapWithConcurrency(
@@ -204,7 +235,9 @@ export async function runEnvelopeList(
     const toShow = onlyUnread ? mails.filter((m) => m.unread) : mails;
 
     if (useJson) {
-      console.log(JSON.stringify({ mails: toShow }));
+      const jsonPayload: { mails: typeof toShow; nextCursor?: string } = { mails: toShow };
+      if (nextCursor != null) jsonPayload.nextCursor = nextCursor;
+      console.log(JSON.stringify(jsonPayload));
     } else {
       const header = ["Subject", "Date", "From", "Unread", "State"];
       const dataRows = toShow.map((m) => {
@@ -218,7 +251,8 @@ export async function runEnvelopeList(
         return [subjectPart, m.receivedDate ?? "", fromPart, m.unread ? "Yes" : "No", statePart];
       });
       const rows = [header, ...dataRows];
-      output.printTable(rows, output.getPlainFormat(getOpts()));
+      const plainFormat = output.getPlainFormat(getOpts());
+      output.printTable(rows, plainFormat);
       if (verbose) {
         for (const m of toShow) {
           const meta: string[] = [
@@ -244,6 +278,14 @@ export async function runEnvelopeList(
           console.log(`    ${meta.join("  ")}`);
         }
       }
+      if (plainFormat === "pretty" && nextCursor != null) {
+        const total = toShow.length;
+        const unreadCount = toShow.filter((m) => m.unread).length;
+        const listPart = folderIdTrimmed !== "" ? ` envelope list ${folderIdTrimmed}` : " envelope list";
+        const hint = `Showing ${total} email${total === 1 ? "" : "s"} (${unreadCount} unread) from ${folder.id}. To load older mails: tutanota-cli${listPart} --cursor "${nextCursor}"`;
+        console.log("");
+        console.log(kleur.dim(hint));
+      }
     }
   } catch (err) {
     const message = getErrorMessage(err);
@@ -267,12 +309,27 @@ export function registerEnvelopeCommands(
   const envelopeCmd = program.command("envelope").alias("emails").description("Envelope (message header) commands");
 
   envelopeCmd
-    .command("list [folder-id]")
-    .description("List latest N envelopes in a folder (default: Inbox; folder-id from 'folders list')")
+    .command("list [folder]")
+    .description("List latest N envelopes in a folder (default: Inbox; folder can be id or name from 'folders list', e.g. Inbox, Sent)")
     .option("--verbose, -v", "Verbose logging")
     .option("--count, -c <n>", "Number of envelopes to list (default: 10, max: 100)")
     .option("--unread, -u", "Show only unread")
-    .action(async (folderId: string | undefined, opts: { verbose?: boolean; V?: boolean; C?: number; count?: number; unread?: boolean; U?: boolean }) => {
-      await runEnvelopeList(folderId, { ...program.opts(), ...opts, count: opts.C != null ? Math.max(1, Math.min(100, opts.C)) : opts.count ?? 10 }, getOpts);
-    });
+    .option("--cursor <id>", "Cursor for next page (use nextCursor from previous JSON or hint)")
+    .action(
+      async (
+        folderId: string | undefined,
+        opts: { verbose?: boolean; V?: boolean; C?: number; count?: number; unread?: boolean; U?: boolean; cursor?: string }
+      ) => {
+        await runEnvelopeList(
+          folderId,
+          {
+            ...program.opts(),
+            ...opts,
+            count: opts.C != null ? Math.max(1, Math.min(100, opts.C)) : opts.count ?? 10,
+            cursor: opts.cursor,
+          },
+          getOpts
+        );
+      }
+    );
 }
