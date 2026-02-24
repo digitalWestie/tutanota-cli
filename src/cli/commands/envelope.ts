@@ -191,6 +191,11 @@ export async function runEnvelopeList(
           "__proto__" in mailRaw
             ? (Object.fromEntries(Object.entries(mailRaw).filter(([k]) => k !== "__proto__")) as ServerInstance)
             : mailRaw;
+        const attachments115 = safeMail["115"];
+        const attachmentCount = Array.isArray(attachments115) ? attachments115.length : 0;
+        if (verbose) {
+          console.error("[verbose] Mail", typeof mailId === "string" ? mailId : mailId[0] + "/" + mailId[1], "attachments (115):", attachments115, typeof attachments115 === "object" ? `(length ${Array.isArray(attachments115) ? attachments115.length : "n/a"})` : "");
+        }
         const mailSk = resolveSessionKey(keyChain, safeMail, MAIL);
         const mailDec = decryptParsedInstance(MAIL, safeMail, mailSk ?? null);
         const d = mailDec as ServerInstance;
@@ -228,6 +233,7 @@ export async function runEnvelopeList(
           processingState: d["1728"] != null ? Number(d["1728"]) : null,
           processNeeded: d["1769"] === true,
           sendAt: toDateStr(d["1784"]) ?? null,
+          attachmentCount,
         };
       }
     );
@@ -239,7 +245,7 @@ export async function runEnvelopeList(
       if (nextCursor != null) jsonPayload.nextCursor = nextCursor;
       console.log(JSON.stringify(jsonPayload));
     } else {
-      const header = ["Subject", "Date", "From", "Unread", "State"];
+      const header = ["Subject", "Date", "From", "Unread", "State", "Attachments"];
       const dataRows = toShow.map((m) => {
         const fromPart = m.senderAddress != null ? m.senderAddress : "";
         let statePart = "Unknown";
@@ -248,7 +254,7 @@ export async function runEnvelopeList(
         if (m.state === 2) statePart = "Received";
         if (m.state === 3) statePart = "Sending";
         const subjectPart = m.subject.replace(/\r\n|\r|\n/g, " ").trim();
-        return [subjectPart, m.receivedDate ?? "", fromPart, m.unread ? "Yes" : "No", statePart];
+        return [subjectPart, m.receivedDate ?? "", fromPart, m.unread ? "Yes" : "No", statePart, String(m.attachmentCount)];
       });
       const rows = [header, ...dataRows];
       const plainFormat = output.getPlainFormat(getOpts());
@@ -260,6 +266,7 @@ export async function runEnvelopeList(
             `from=${m.senderAddress ?? ""}`,
             `state=${m.state ?? ""}`,
             `unread=${m.unread}`,
+            `attachmentCount=${m.attachmentCount}`,
             `confidential=${m.confidential}`,
             `recipientCount=${m.recipientCount ?? ""}`,
             `replyType=${m.replyType ?? ""}`,
@@ -282,7 +289,7 @@ export async function runEnvelopeList(
         const total = toShow.length;
         const unreadCount = toShow.filter((m) => m.unread).length;
         const listPart = folderIdTrimmed !== "" ? ` envelope list ${folderIdTrimmed}` : " envelope list";
-        const hint = `Showing ${total} email${total === 1 ? "" : "s"} (${unreadCount} unread) from ${folder.id}. To load older mails: tutanota-cli${listPart} --cursor "${nextCursor}"`;
+        const hint = `Showing ${total} email${total === 1 ? "" : "s"} (${unreadCount} unread) from ${folder.id}. To list older emails: tutanota-cli${listPart} --cursor "${nextCursor}"`;
         console.log("");
         console.log(kleur.dim(hint));
       }

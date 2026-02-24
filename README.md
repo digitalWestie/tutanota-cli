@@ -114,7 +114,7 @@ Options:
 
 ### `envelope list [folder]`
 
-Lists the latest N envelopes (message headers) in a folder. **Folder is optional and defaults to Inbox** when omitted; use a folder id or folder name from `folders list` (e.g. `L2eum1h-1k-0` or `Inbox`, `Sent`) to list another folder. For each envelope, shows subject, date, from, and unread flag. Unread items are prefixed with `*` in human-readable output. Also available as `emails list`.
+Lists the latest N envelopes (message headers) in a folder. **Folder is optional and defaults to Inbox** when omitted; use a folder id or folder name from `folders list` (e.g. `L2eum1h-1k-0` or `Inbox`, `Sent`) to list another folder. For each envelope, shows subject, date, from, unread flag, and attachment count. Unread items are prefixed with `*` in human-readable output. Also available as `emails list`.
 
 ```bash
 node dist/cli.js envelope list
