@@ -17,6 +17,9 @@ import * as output from "../output.js";
 import * as mailbox from "../mailbox.js";
 import { getFolderDisplayName } from "./folders.js";
 
+/** Max width for Subject column in envelope list (pretty table). Used for both data truncation and table colMaxWidths. */
+const ENVELOPE_LIST_SUBJECT_MAX_WIDTH = 150;
+
 export interface EnvelopeListOptions {
   output?: string;
   verbose?: boolean;
@@ -211,7 +214,18 @@ export async function runEnvelopeList(
           sender != null && typeof sender === "object" && "95" in sender
             ? String((sender as Record<string, unknown>)["95"] ?? "")
             : null;
-        const idForJson = typeof mailId === "string" ? mailId : mailId[0] + "/" + mailId[1];
+        // Use element id from loaded Mail response (99); server may return full id (listId,elementId) so extract element id only for display
+        const responseId = safeMail["99"];
+        const elementIdOnly = ((): string => {
+          if (responseId == null) return typeof mailId === "string" ? mailId : mailId[1];
+          if (Array.isArray(responseId) && responseId.length >= 2) return String(responseId[1]);
+          const s = String(responseId);
+          if (s === "") return typeof mailId === "string" ? mailId : mailId[1];
+          const lastComma = s.lastIndexOf(",");
+          return lastComma >= 0 ? s.slice(lastComma + 1).trim() : s;
+        })();
+        const idForJson =
+          typeof mailId === "string" ? mailId : mailId[0] + "/" + elementIdOnly;
         return {
           id: idForJson,
           subject: String(d["105"] ?? ""),
@@ -245,7 +259,9 @@ export async function runEnvelopeList(
       if (nextCursor != null) jsonPayload.nextCursor = nextCursor;
       console.log(JSON.stringify(jsonPayload));
     } else {
-      const header = ["Subject", "Date", "From", "Unread", "State", "Attachments"];
+      const header = ["Id", "Subject", "Date", "From", "Unread", "State", "Attachments"];
+      const plainFormat = output.getPlainFormat(getOpts());
+      const subjectMaxLen = plainFormat === "pretty" ? ENVELOPE_LIST_SUBJECT_MAX_WIDTH : Number.MAX_SAFE_INTEGER;
       const dataRows = toShow.map((m) => {
         const fromPart = m.senderAddress != null ? m.senderAddress : "";
         let statePart = "Unknown";
@@ -253,12 +269,18 @@ export async function runEnvelopeList(
         if (m.state === 1) statePart = "Sent";
         if (m.state === 2) statePart = "Received";
         if (m.state === 3) statePart = "Sending";
-        const subjectPart = m.subject.replace(/\r\n|\r|\n/g, " ").trim();
-        return [subjectPart, m.receivedDate ?? "", fromPart, m.unread ? "Yes" : "No", statePart, String(m.attachmentCount)];
+        let subjectPart = m.subject.replace(/\r\n|\r|\n/g, " ").trim();
+        if (subjectPart.length > subjectMaxLen) {
+          subjectPart = subjectPart.slice(0, subjectMaxLen - 3) + "...";
+        }
+        return [m.id, subjectPart, m.receivedDate ?? "", fromPart, m.unread ? "Yes" : "No", statePart, String(m.attachmentCount)];
       });
       const rows = [header, ...dataRows];
-      const plainFormat = output.getPlainFormat(getOpts());
-      output.printTable(rows, plainFormat);
+      const tableOptions =
+        plainFormat === "pretty"
+          ? { colMaxWidths: { 0: 512, 1: ENVELOPE_LIST_SUBJECT_MAX_WIDTH, 3: 512 }, keepFullWidthColumns: [0, 3] }
+          : undefined;
+      output.printTable(rows, plainFormat, tableOptions);
       if (verbose) {
         for (const m of toShow) {
           const meta: string[] = [
@@ -313,7 +335,7 @@ export function registerEnvelopeCommands(
   program: Command,
   getOpts: () => Record<string, unknown>
 ): void {
-  const envelopeCmd = program.command("envelope").alias("emails").description("Envelope (message header) commands");
+  const envelopeCmd = program.command("envelope").alias("messages").description("Envelope (message header) commands");
 
   envelopeCmd
     .command("list [folder]")

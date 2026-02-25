@@ -25,33 +25,61 @@ export function getPlainFormat(opts: OutputOpts): "pretty" | "tsv" {
 
 const MAX_COL_WIDTH = 80;
 
-export function printTable(rows: string[][], format: "pretty" | "tsv"): void {
+export interface PrintTableOptions {
+  /** Max width per column index (0-based). Overrides MAX_COL_WIDTH for that column. */
+  colMaxWidths?: Record<number, number>;
+  /** Column indices that are never shrunk for terminal width and never truncated with "...". */
+  keepFullWidthColumns?: number[];
+}
+
+export function printTable(
+  rows: string[][],
+  format: "pretty" | "tsv",
+  options?: PrintTableOptions | Record<number, number>
+): void {
   if (rows.length === 0) return;
   if (format === "tsv") {
     for (const row of rows) console.log(row.join("\t"));
     return;
   }
+  const opts: PrintTableOptions =
+    options != null && !("colMaxWidths" in options) && !("keepFullWidthColumns" in options)
+      ? { colMaxWidths: options as Record<number, number> }
+      : (options as PrintTableOptions) ?? {};
+  const colMaxWidths = opts.colMaxWidths;
+  const keepFull = new Set(opts.keepFullWidthColumns ?? []);
+
   const cols = rows[0].length;
   const widths: number[] = [];
   for (let j = 0; j < cols; j++) {
+    const cap = colMaxWidths?.[j] ?? MAX_COL_WIDTH;
     let max = 0;
     for (const row of rows) {
       const len = (row[j] ?? "").length;
-      max = Math.min(Math.max(max, len), MAX_COL_WIDTH);
+      max = Math.min(Math.max(max, len), cap);
     }
     widths[j] = max;
   }
   const termCols = typeof process.stdout.columns === "number" ? process.stdout.columns : null;
-  const totalWidth = widths.reduce((a, b) => a + b, 0) + (cols - 1) * 2;
+  let totalWidth = widths.reduce((a, b) => a + b, 0) + (cols - 1) * 2;
   if (termCols != null && totalWidth > termCols && cols > 0) {
     const maxPerCol = Math.max(10, Math.floor(termCols / cols) - 2);
-    for (let j = 0; j < cols; j++) widths[j] = Math.min(widths[j], maxPerCol);
+    for (let j = 0; j < cols; j++) {
+      if (!keepFull.has(j)) widths[j] = Math.min(widths[j], maxPerCol);
+    }
+    totalWidth = widths.reduce((a, b) => a + b, 0) + (cols - 1) * 2;
   }
   for (let i = 0; i < rows.length; i++) {
     const row = rows[i];
     const isHeader = i === 0;
     const parts = row.map((cell, j) => {
-      const s = (cell ?? "").slice(0, widths[j]);
+      const raw = cell ?? "";
+      let s: string;
+      if (keepFull.has(j) || raw.length <= widths[j]) {
+        s = raw;
+      } else {
+        s = widths[j] > 3 ? raw.slice(0, widths[j] - 3) + "..." : raw.slice(0, widths[j]);
+      }
       const padded = s.padEnd(widths[j]);
       return isHeader ? kleur.bold(padded) : padded;
     });

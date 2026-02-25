@@ -2,7 +2,7 @@ import * as logger from "./logger.js";
 
 const SYS_MODEL_VERSION = "143";
 /** Client version sent in cv header; should match @tutao package version. */
-const CLIENT_VERSION = "327.260210.0";
+export const CLIENT_VERSION = "327.260210.0";
 /** Client platform: 5 = WEB (see ClientPlatform in main app). */
 const CLIENT_PLATFORM = "5";
 const USER_AGENT = "Tutanota-CLI/0.1.0";

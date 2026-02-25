@@ -4,6 +4,7 @@ import { loadEnv } from "./config.js";
 import { registerAccountCommands } from "./cli/commands/account.js";
 import { registerFoldersCommands } from "./cli/commands/folders.js";
 import { runEnvelopeList, registerEnvelopeCommands } from "./cli/commands/envelope.js";
+import { registerMessageCommands } from "./cli/commands/message.js";
 
 loadEnv();
 
@@ -26,6 +27,7 @@ function getOpts(): Record<string, unknown> {
 registerAccountCommands(program, getOpts);
 registerFoldersCommands(program, getOpts);
 registerEnvelopeCommands(program, getOpts);
+registerMessageCommands(program, getOpts);
 
 program.action(async () => {
   await runEnvelopeList(undefined, { ...program.opts(), count: 10, unread: false }, getOpts);

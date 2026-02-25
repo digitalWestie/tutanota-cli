@@ -2,9 +2,11 @@
 
 ℹ️ *This tool is not affiliated or endorsed by Tuta GmbH in any way.*
 
-A CLI to authenticate with [Tutanota](https://tuta.com), list mail folders, list envelopes (message headers) in a folder, and (in future) export mail.
+A CLI to authenticate with [Tutanota](https://tuta.com), list mail folders, list envelopes (message headers) in a folder, read full messages, and (in future) export mail. The command layout follows [Himalaya](https://github.com/pimalaya/himalaya)-style structure: **envelope** for listing headers, **message** for reading (and later exporting) full messages.
 
-This CLI was developed based on the official client repository [tutao/tutanota](https://github.com/tutao/tutanota) at version ...., commit .....
+This CLI was developed based on the official client repository [tutao/tutanota](https://github.com/tutao/tutanota) at version 327.260210.0, commit 6b43e845bc18b17dc3b047d186a8490129887911.
+
+This is a stateless CLI rather than a TUI client. There is no event loop so it's not interactive, but hey, that means you can use it in scripts.
 
 ## Requirements
 
@@ -40,7 +42,7 @@ You can copy `.env.example` to `.env` and fill in your values.
 After a successful login, the CLI stores a session in a file so that later commands can reuse it without asking for your password again.
 
 - **Location:** `$XDG_CONFIG_HOME/tutanota-cli/session.json`, or `~/.config/tutanota-cli/session.json` if `XDG_CONFIG_HOME` is not set.
-- **Usage:** `account check`, `account profile`, `account logout`, `folders list`, and `envelope list` use the stored session when it is present and still valid. The same commands are also available under the `auth` alias (e.g. `auth check`, `auth profile`, `auth logout`). Commands that decrypt data (e.g. `folders list`) will prompt for your password when using a stored session, since the passphrase key is not persisted. Running the CLI with **no subcommand** lists the default folder (Inbox), same as `envelope list`.
+- **Usage:** `account check`, `account profile`, `account logout`, `folders list`, `envelope list`, and `message read` use the stored session when it is present and still valid. The same commands are also available under the `auth` alias (e.g. `auth check`, `auth profile`, `auth logout`). Commands that decrypt data (e.g. `folders list`, `message read`) will prompt for your password when using a stored session, since the passphrase key is not persisted. Running the CLI with **no subcommand** lists the default folder (Inbox), same as `envelope list`.
 - **Recovery:** If session verification fails (e.g. network error or session expired), the CLI clears the stored session and prompts you to log in again. You may see a brief message such as "Network error while checking session; logging in again." or "Session invalid or expired; logging in again."
 - **Log out:** Run `account logout` (or `auth logout`) to clear the stored session, or delete the session file manually.
 - **Opt-out:** Set `TUTANOTA_NO_SESSION_PERSISTENCE=1` in the environment to disable saving and using a session file.
@@ -114,7 +116,7 @@ Options:
 
 ### `envelope list [folder]`
 
-Lists the latest N envelopes (message headers) in a folder. **Folder is optional and defaults to Inbox** when omitted; use a folder id or folder name from `folders list` (e.g. `L2eum1h-1k-0` or `Inbox`, `Sent`) to list another folder. For each envelope, shows subject, date, from, unread flag, and attachment count. Unread items are prefixed with `*` in human-readable output. Also available as `emails list`.
+Lists the latest N envelopes (message headers) in a folder. **Folder is optional and defaults to Inbox** when omitted; use a folder id or folder name from `folders list` (e.g. `L2eum1h-1k-0` or `Inbox`, `Sent`) to list another folder. For each envelope, shows subject, date, from, unread flag, and attachment count. Unread items are prefixed with `*` in human-readable output. Also available as `messages list`.
 
 ```bash
 node dist/cli.js envelope list
@@ -128,12 +130,29 @@ Options:
 - `--verbose`, `-v` – Verbose logging for debugging.
 - `--count`, `-c` – Number of envelopes to list (default: 10, max: 100).
 - `--unread`, `-u` – Show only unread (filters client-side). Use global `--output json` for JSON.
-- `--cursor <id>` – Cursor for the next page (older mails). With `--output json`, the response includes `nextCursor` when more mail is available; use that value as `--cursor` on the next run. With pretty output, a one-line hint on a separate line after the table shows a copy-pasteable command for the next page when applicable. TSV output does not include cursor or hint.
+- `--cursor <id>` – Cursor for the next page (older emails). With `--output json`, the response includes `nextCursor` when more mail is available; use that value as `--cursor` on the next run. With pretty output, a one-line hint on a separate line after the table shows a copy-pasteable command for the next page when applicable. TSV output does not include cursor or hint.
+
+### `message read <mail-id> [other-ids...]`
+
+Reads one or more full messages (headers and body) by mail-id. Also available as `msg read`. The **mail-id** is the same format as the `id` field in `envelope list --output json` (e.g. `listId/elementId`). Run `envelope list --output json` to get mail ids, then pass them to `message read`. Output is human-friendly by default: From, Subject, Date, then a blank line, then the body (HTML is converted to plain text for pretty output). Draft messages are not supported.
+
+```bash
+npm start -- envelope list --output json -c 5
+# Copy an id from the "mails" array, then:
+npm start -- message read "LISTID/ELEMENTID"
+npm start -- message read id1 id2 id3
+```
+
+Options:
+
+- `--verbose`, `-v` – Verbose logging for debugging.
+- `--output`, `-o` – `pretty` (default), `tsv`, or `json`. With `json`, each message is output as an object with `id`, `from`, `subject`, `date`, and `body`.
 
 ## Limitations
 
 - **2FA**: Accounts with two-factor authentication enabled are not supported yet. Commands will fail with a clear message. Use the official Tutanota client or disable 2FA for the account.
-- **Export**: Mail export (downloading messages) is not implemented; the CLI supports authentication, profile, listing folders, and listing envelopes in a folder.
+- **Export**: Mail export (e.g. to .eml or mbox) is not implemented. The CLI supports authentication, profile, listing folders, listing envelopes, and reading full messages.
+- **Drafts**: `message read` does not support draft messages; use a mail id from a non-draft folder (e.g. Inbox, Sent).
 
 ## License
 

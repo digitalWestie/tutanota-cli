@@ -24,6 +24,8 @@ export interface TypeModel {
   app: string;
   name: string;
   version: number;
+  /** Version of the sys model this type depends on; sent as `dv` header for tutanota entity requests. */
+  dependsOnVersion?: number;
   encrypted: boolean;
   values: Record<string, ValueModel>;
 }
@@ -123,7 +125,8 @@ export const MAIL_SET_ENTRY: TypeModel = {
 export const MAIL: TypeModel = {
   app: "tutanota",
   name: "Mail",
-  version: 102,
+  version: 105,
+  dependsOnVersion: 144,
   encrypted: true,
   values: {
     "99": { id: 99, type: "String", encrypted: false },
@@ -148,6 +151,8 @@ export const MAIL: TypeModel = {
     "1728": { id: 1728, type: "Number", encrypted: false },
     "1769": { id: 1769, type: "Boolean", encrypted: false },
     "1784": { id: 1784, type: "Date", encrypted: false },
+    "1308": { id: 1308, type: "String", encrypted: false },
+    "1309": { id: 1309, type: "String", encrypted: false },
   },
 };
 
@@ -163,6 +168,35 @@ export const MAIL_SET_ATTR_OWNER_KEY_VERSION = "1399";
 export const MAIL_ATTR_OWNER_GROUP = "587";
 export const MAIL_ATTR_OWNER_ENC_SESSION_KEY = "102";
 export const MAIL_ATTR_OWNER_KEY_VERSION = "1395";
+/** Mail: ref to MailDetailsBlob (listId/elementId). Omitted for drafts. */
+export const MAIL_ATTR_MAIL_DETAILS = "1308";
+/** Mail: ref to MailDetailsDraft. Set for drafts instead of 1308. */
+export const MAIL_ATTR_MAIL_DETAILS_DRAFT = "1309";
+
+/** MailDetailsBlob: encrypted blob containing details (1305 = aggregation MailDetails with body). Load by mail.mailDetails id. */
+export const MAIL_DETAILS_BLOB: TypeModel = {
+  app: "tutanota",
+  name: "MailDetailsBlob",
+  version: 105,
+  dependsOnVersion: 144,
+  encrypted: true,
+  values: {
+    "1300": { id: 1300, type: "String", encrypted: false },
+    "1301": { id: 1301, type: "String", encrypted: false },
+    "1302": { id: 1302, type: "Number", encrypted: false },
+    "1303": { id: 1303, type: "String", encrypted: false },
+    "1304": { id: 1304, type: "Bytes", encrypted: false },
+    "1408": { id: 1408, type: "Number", encrypted: false },
+  },
+};
+
+/** Attribute ids inside Body aggregate (1273): 1275 = text, 1276 = compressedText (both encrypted). */
+export const BODY_ATTR_TEXT = "1275";
+export const BODY_ATTR_COMPRESSED_TEXT = "1276";
+/** MailDetails aggregate (1282): 1288 = body (aggregation to Body). */
+export const MAIL_DETAILS_ATTR_BODY = "1288";
+/** MailDetailsBlob: 1305 = details (aggregation to MailDetails, array of one). */
+export const MAIL_DETAILS_BLOB_ATTR_DETAILS = "1305";
 
 /** MailboxGroupRoot: mailbox association id (ELEMENT_ASSOCIATION -> MailBox id). */
 export const MAILBOX_GROUP_ROOT_MAILBOX = "699";

@@ -5,9 +5,19 @@
 
 import * as http from "./http.js";
 import type { TypeModel } from "./crypto/typeModels.js";
+import { MAIL_DETAILS_BLOB } from "./crypto/typeModels.js";
 
 function restPath(typeModel: TypeModel): string {
   return `/rest/${typeModel.app}/${typeModel.name.toLowerCase()}`;
+}
+
+/** Build v (and optionally dv) headers for entity REST requests. */
+function versionHeaders(typeModel: TypeModel): Record<string, string> {
+  const headers: Record<string, string> = { v: String(typeModel.version) };
+  if (typeModel.dependsOnVersion != null) {
+    headers.dv = String(typeModel.dependsOnVersion);
+  }
+  return headers;
 }
 
 export interface LoadEntityOptions {
@@ -29,8 +39,30 @@ export async function loadEntity<T = Record<string, unknown>>(
       : `${restPath(typeModel)}/${id[0]}/${id[1]}`;
   return http.get<T>(baseUrl, path, {
     accessToken: options.accessToken,
-    extraHeaders: { v: String(typeModel.version) },
+    extraHeaders: versionHeaders(typeModel),
   });
+}
+
+/**
+ * Load multiple list elements by listId and element ids (query param ids=id1,id2,...).
+ * Use this when the server returns 400 for loadEntity with [listId, elementId] path.
+ */
+export async function loadMultiple<T = Record<string, unknown>>(
+  baseUrl: string,
+  typeModel: TypeModel,
+  listId: string,
+  elementIds: string[],
+  options: LoadEntityOptions
+): Promise<T[]> {
+  const path = `${restPath(typeModel)}/${listId}`;
+  const url = new URL(path, baseUrl);
+  url.searchParams.set("ids", elementIds.join(","));
+  const fullPath = url.pathname + url.search;
+  const result = await http.get<T[]>(baseUrl, fullPath, {
+    accessToken: options.accessToken,
+    extraHeaders: versionHeaders(typeModel),
+  });
+  return Array.isArray(result) ? result : [result];
 }
 
 /** Range request params. */
@@ -60,7 +92,7 @@ export async function loadRange<T = Record<string, unknown>>(
   const fullPath = url.pathname + url.search;
   return http.get<T[]>(baseUrl, fullPath, {
     accessToken: options.accessToken,
-    extraHeaders: { v: String(typeModel.version) },
+    extraHeaders: versionHeaders(typeModel),
     verboseResponse: options.verboseResponse,
   });
 }
@@ -68,3 +100,28 @@ export async function loadRange<T = Record<string, unknown>>(
 /** Min/max generated ids for range queries (same as main app EntityUtils). */
 export const GENERATED_MIN_ID = "------------";
 export const GENERATED_MAX_ID = "zzzzzzzzzzzz";
+
+/**
+ * Load MailDetailsBlob from the blob server using a blob access token.
+ * Auth and version are passed as query params (no accessToken in headers).
+ * Blob server returns an array of instances when using ids=; we return it as-is.
+ */
+export async function loadMailDetailsBlobFromBlobServer(
+  serverUrl: string,
+  listId: string,
+  elementId: string,
+  blobAccessToken: string,
+  accessToken: string
+): Promise<Record<string, unknown> | Record<string, unknown>[]> {
+  const path = `/rest/tutanota/maildetailsblob/${listId}`;
+  const url = new URL(path, serverUrl);
+  url.searchParams.set("accessToken", accessToken);
+  url.searchParams.set("v", String(MAIL_DETAILS_BLOB.version));
+  url.searchParams.set("ids", elementId);
+  url.searchParams.set("blobAccessToken", blobAccessToken);
+  url.searchParams.set("cv", http.CLIENT_VERSION);
+  const fullPath = url.pathname + url.search;
+  return http.get<Record<string, unknown> | Record<string, unknown>[]>(serverUrl, fullPath, {
+    extraHeaders: { v: String(MAIL_DETAILS_BLOB.version) },
+  });
+}
