@@ -16,6 +16,7 @@ import { exitCodeForError } from "../exitCodes.js";
 import * as output from "../output.js";
 import * as mailbox from "../mailbox.js";
 import { loadMailBody } from "../loadMailBody.js";
+import { runAttachmentDownload } from "../loadAttachments.js";
 import { htmlToPlainText } from "../../utils/htmlToPlainText.js";
 
 /** Parse mail-id string into [listId, elementId]. Use ids from 'envelope list --output json'. */
@@ -220,6 +221,94 @@ export function registerMessageCommands(
           { ...program.opts(), ...opts },
           getOpts
         );
+      }
+    );
+
+  messageCmd
+    .command("attachment <mail-id>")
+    .description("Download attachments from a message by mail-id (from 'envelope list --output json').")
+    .option("--output-dir <dir>", "Directory to save files (default: current directory)", ".")
+    .option("--index <n>", "Download only the nth attachment (1-based)", (v) => parseInt(v, 10))
+    .option("--verbose, -v", "Verbose logging")
+    .action(
+      async (
+        mailId: string,
+        opts: { outputDir?: string; index?: number; verbose?: boolean; V?: boolean }
+      ) => {
+        const verbose = opts.verbose ?? opts.V ?? false;
+        if (verbose) setVerbose(true);
+        const useJson = output.getOutputFormat(getOpts());
+
+        try {
+          const baseUrl = getApiBaseUrl();
+          let { result } = await context.getOrCreateSession(baseUrl, verbose);
+          let userPassphraseKey = await context.getPassphraseKeyForDecryption(baseUrl, result, verbose);
+
+          let userRaw: Record<string, unknown>;
+          try {
+            userRaw = (await loadUser(baseUrl, result.accessToken, result.userId)) as Record<string, unknown>;
+          } catch (loadErr) {
+            if (context.isSessionExpiredOrInvalid(loadErr) && readSession() != null) {
+              if (verbose) console.error("[verbose] loadUser returned 401/440; clearing session and retrying.");
+              clearSession();
+              const retry = await context.getOrCreateSession(baseUrl, verbose);
+              result = retry.result;
+              userPassphraseKey = await context.getPassphraseKeyForDecryption(baseUrl, result, verbose);
+              userRaw = (await loadUser(baseUrl, result.accessToken, result.userId)) as Record<string, unknown>;
+            } else {
+              throw loadErr;
+            }
+          }
+
+          const { keyChain } = await mailbox.loadMailboxAndMailSetList({
+            baseUrl,
+            result,
+            userPassphraseKey,
+            userRaw,
+            verbose,
+          });
+
+          const saved = await runAttachmentDownload(
+            mailId,
+            {
+              outputDir: opts.outputDir ?? ".",
+              index: opts.index,
+              verbose,
+            },
+            {
+              baseUrl,
+              accessToken: result.accessToken,
+              keyChain,
+            }
+          );
+
+          if (saved.length === 0) {
+            if (useJson) {
+              console.log(JSON.stringify({ message: "No attachments.", saved: [] }));
+            } else {
+              console.error("No attachments.");
+            }
+            return;
+          }
+
+          if (useJson) {
+            console.log(JSON.stringify(saved.map((s) => ({ name: s.name, path: s.path, size: s.size }))));
+          } else {
+            for (const s of saved) {
+              console.log("Saved:", s.path);
+            }
+          }
+        } catch (err) {
+          const message = getErrorMessage(err);
+          if (context.isSessionExpiredOrInvalid(err)) {
+            clearSession();
+            console.error("Session expired or invalid. Run 'account check' to log in again.");
+          } else {
+            if (verbose && err instanceof Error && err.stack) console.error("[verbose] stack:", err.stack);
+            console.error("Error:", message);
+          }
+          process.exit(exitCodeForError(err));
+        }
       }
     );
 }

@@ -76,6 +76,113 @@ export async function get<T>(baseUrl: string, path: string, options: RequestOpti
   return res.json() as Promise<T>;
 }
 
+/** Options for getBinary (body is string; RequestOptions.body is object). */
+export interface GetBinaryOptions {
+  body?: string;
+  accessToken?: string;
+  extraHeaders?: Record<string, string>;
+}
+
+/**
+ * GET request with optional body and binary response. Used for storage BlobService.
+ */
+export async function getBinary(
+  baseUrl: string,
+  path: string,
+  options: GetBinaryOptions = {}
+): Promise<Uint8Array> {
+  const url = new URL(path, baseUrl);
+  logger.log(`GET ${url.origin}${url.pathname} (binary)`);
+
+  const headers: Record<string, string> = {
+    "User-Agent": USER_AGENT,
+    "Content-Type": "application/json",
+    cv: CLIENT_VERSION,
+    cp: CLIENT_PLATFORM,
+  };
+  if (options.accessToken) {
+    headers.accessToken = options.accessToken;
+  }
+  if (options.extraHeaders) {
+    Object.assign(headers, options.extraHeaders);
+  }
+
+  const init: RequestInit = { method: "GET", headers };
+  if (options.body != null) {
+    (init as RequestInit & { body?: string }).body = options.body;
+  }
+
+  let res: Response;
+  try {
+    res = await fetch(url.toString(), init);
+  } catch (err) {
+    if (logger.isVerbose()) {
+      console.error("Request failed: GET", url.origin + url.pathname);
+      console.error("Error:", err);
+    }
+    throw err;
+  }
+
+  if (!res.ok) {
+    const text = await res.text();
+    if (logger.isVerbose() && text) console.error("[verbose] response body:", text);
+    throw new Error(`HTTP ${res.status}: ${text || res.statusText}`);
+  }
+
+  const buffer = await res.arrayBuffer();
+  return new Uint8Array(buffer);
+}
+
+/**
+ * POST request with body and binary response. Used for storage BlobService (Node fetch disallows GET with body).
+ */
+export async function postBinary(
+  baseUrl: string,
+  path: string,
+  body: string,
+  options: Omit<GetBinaryOptions, "body"> = {}
+): Promise<Uint8Array> {
+  const url = new URL(path, baseUrl);
+  logger.log(`POST ${url.origin}${url.pathname} (binary)`);
+
+  const headers: Record<string, string> = {
+    "User-Agent": USER_AGENT,
+    "Content-Type": "application/json",
+    cv: CLIENT_VERSION,
+    cp: CLIENT_PLATFORM,
+  };
+  if (options.accessToken) {
+    headers.accessToken = options.accessToken;
+  }
+  if (options.extraHeaders) {
+    Object.assign(headers, options.extraHeaders);
+  }
+
+  let res: Response;
+  try {
+    res = await fetch(url.toString(), {
+      method: "POST",
+      headers,
+      body,
+    });
+  } catch (err) {
+    if (logger.isVerbose()) {
+      console.error("Request failed: POST", url.origin + url.pathname);
+      console.error("Error:", err);
+    }
+    throw err;
+  }
+
+  if (!res.ok) {
+    const text = await res.text();
+    if (logger.isVerbose() && text) console.error("[verbose] response body:", text);
+    throw new Error(`HTTP ${res.status}: ${text || res.statusText}`);
+  }
+
+  const buffer = await res.arrayBuffer();
+  return new Uint8Array(buffer);
+}
+
 export async function post<T>(baseUrl: string, path: string, body: object, options: RequestOptions = {}): Promise<T> {
   const url = new URL(path, baseUrl);
   logger.log(`POST ${url.origin}${url.pathname}`);

@@ -44,7 +44,7 @@ You can copy `.env.example` to `.env` and fill in your values.
 After a successful login, the CLI stores a session in a file so that later commands can reuse it without asking for your password again.
 
 - **Location:** `$XDG_CONFIG_HOME/tutanota-cli/session.json`, or `~/.config/tutanota-cli/session.json` if `XDG_CONFIG_HOME` is not set.
-- **Usage:** `account check`, `account profile`, `account logout`, `folders list`, `envelope list`, and `message read` use the stored session when it is present and still valid. The same commands are also available under the `auth` alias (e.g. `auth check`, `auth profile`, `auth logout`). Commands that decrypt data (e.g. `folders list`, `message read`) will prompt for your password when using a stored session, since the passphrase key is not persisted. Running the CLI with **no subcommand** lists the default folder (Inbox), same as `envelope list`.
+- **Usage:** `account check`, `account profile`, `account logout`, `folders list`, `envelope list`, `message read`, and `message attachment` use the stored session when it is present and still valid. The same commands are also available under the `auth` alias (e.g. `auth check`, `auth profile`, `auth logout`). Commands that decrypt data (e.g. `folders list`, `message read`) will prompt for your password when using a stored session, since the passphrase key is not persisted. Running the CLI with **no subcommand** lists the default folder (Inbox), same as `envelope list`.
 - **Recovery:** If session verification fails (e.g. network error or session expired), the CLI clears the stored session and prompts you to log in again. You may see a brief message such as "Network error while checking session; logging in again." or "Session invalid or expired; logging in again."
 - **Log out:** Run `account logout` (or `auth logout`) to clear the stored session, or delete the session file manually.
 - **Opt-out:** Set `TUTANOTA_NO_SESSION_PERSISTENCE=1` in the environment to disable saving and using a session file.
@@ -149,6 +149,23 @@ Options:
 
 - `--verbose`, `-v` – Verbose logging for debugging.
 - `--output`, `-o` – `pretty` (default), `tsv`, or `json`. With `json`, each message is output as an object with `id`, `from`, `subject`, `date`, and `body`.
+
+### `message attachment <mail-id>`
+
+Downloads attachments from a message. Use the same **mail-id** format as `message read` (from `envelope list --output json`). Saves files to the current directory by default; use `--output-dir` to choose a folder. If a file with the same name already exists, a suffix ` (1)`, ` (2)`, etc. is added.
+
+```bash
+npm start -- message attachment "LISTID/ELEMENTID"
+npm start -- message attachment "LISTID/ELEMENTID" --output-dir ./downloads
+npm start -- message attachment "LISTID/ELEMENTID" --index 1
+```
+
+Options:
+
+- `--output-dir <dir>` – Directory to save files (default: current directory).
+- `--index <n>` – Download only the nth attachment (1-based).
+- `--verbose`, `-v` – Verbose logging.
+- `--output`, `-o` – With `json`, outputs an array of `{ name, path, size }` for each saved file.
 
 ## Limitations
 

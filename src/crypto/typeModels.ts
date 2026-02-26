@@ -184,6 +184,8 @@ export const MAIL_ATTR_OWNER_KEY_VERSION = "1395";
 export const MAIL_ATTR_MAIL_DETAILS = "1308";
 /** Mail: ref to MailDetailsDraft. Set for drafts instead of 1308. */
 export const MAIL_ATTR_MAIL_DETAILS_DRAFT = "1309";
+/** Mail: list of attachment refs (File [listId, elementId][]). */
+export const MAIL_ATTR_ATTACHMENTS = "115";
 
 /** MailDetailsBlob: encrypted blob containing details (1305 = aggregation MailDetails with body). Load by mail.mailDetails id. */
 export const MAIL_DETAILS_BLOB: TypeModel = {
@@ -210,6 +212,34 @@ export const MAIL_DETAILS_ATTR_BODY = "1288";
 /** MailDetailsBlob: 1305 = details (aggregation to MailDetails, array of one). */
 export const MAIL_DETAILS_BLOB_ATTR_DETAILS = "1305";
 
+/** File (tutanota): encrypted; attachments. Owner 580/18/1391; name 21, size 22, mimeType 23; blobs 1225. */
+export const FILE: TypeModel = {
+  app: "tutanota",
+  name: "File",
+  version: 102,
+  encrypted: true,
+  values: {
+    "15": { id: 15, type: "String", encrypted: false },
+    "18": { id: 18, type: "Bytes", encrypted: false },
+    "21": { id: 21, type: "String", encrypted: true },
+    "22": { id: 22, type: "Number", encrypted: false },
+    "23": { id: 23, type: "String", encrypted: true },
+    "580": { id: 580, type: "String", encrypted: false },
+    "1391": { id: 1391, type: "Number", encrypted: false },
+  },
+};
+
+export const FILE_ATTR_OWNER_GROUP = "580";
+export const FILE_ATTR_OWNER_ENC_SESSION_KEY = "18";
+export const FILE_ATTR_OWNER_KEY_VERSION = "1391";
+export const FILE_ATTR_NAME = "21";
+export const FILE_ATTR_SIZE = "22";
+export const FILE_ATTR_MIME_TYPE = "23";
+/** File: blobs aggregation (list of { archiveId, blobId }). Sys Blob: 1884=archiveId, 1906=blobId. */
+export const FILE_ATTR_BLOBS = "1225";
+export const BLOB_ATTR_ARCHIVE_ID = "1884";
+export const BLOB_ATTR_BLOB_ID = "1906";
+
 /** MailboxGroupRoot: mailbox association id (ELEMENT_ASSOCIATION -> MailBox id). */
 export const MAILBOX_GROUP_ROOT_MAILBOX = "699";
 
@@ -234,6 +264,13 @@ export function getOwnerAttrs(typeModel: TypeModel): {
       ownerGroup: MAIL_ATTR_OWNER_GROUP,
       ownerEncSessionKey: MAIL_ATTR_OWNER_ENC_SESSION_KEY,
       ownerKeyVersion: MAIL_ATTR_OWNER_KEY_VERSION,
+    };
+  }
+  if (typeModel.name === "File") {
+    return {
+      ownerGroup: FILE_ATTR_OWNER_GROUP,
+      ownerEncSessionKey: FILE_ATTR_OWNER_ENC_SESSION_KEY,
+      ownerKeyVersion: FILE_ATTR_OWNER_KEY_VERSION,
     };
   }
   return {

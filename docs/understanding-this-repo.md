@@ -87,6 +87,8 @@ Encrypted entities (Mail, MailSet, MailDetailsBlob, etc.) require resolving **se
 3. **Blob access:** MailDetailsBlob is a blob element. You cannot GET it from the main app domain. Request a **blob read token** from the storage service (POST with BlobReadData for the archive), then GET the blob from the **blob server** URL with `blobAccessToken` and `ids` query.
 4. See [src/blobToken.ts](../src/blobToken.ts), [src/rest.ts](../src/rest.ts) `loadMailDetailsBlobFromBlobServer`, [src/cli/loadMailBody.ts](../src/cli/loadMailBody.ts).
 
+**Attachments.** Mail attribute **115** holds a list of refs to **File** entities (tutanota type 13). Each File is encrypted (same key chain as Mail); it has name, size, mimeType and an aggregation **1225** of **Blob** refs (each with `archiveId` and `blobId`). Attachment content is fetched from the **storage BlobService** (`/rest/storage/blob`), not the tutanota MailDetailsBlob path: request a blob read token per archive, GET with BlobGetIn (archiveId + blobIds), parse the binary response, then decrypt each blob with the File’s session key. See [src/cli/loadAttachments.ts](../src/cli/loadAttachments.ts), [src/storageBlob.ts](../src/storageBlob.ts).
+
 ---
 
 ## Diagram: from login to decrypted mail body
@@ -153,6 +155,6 @@ Scripts can branch on `$?` (e.g. retry on 2, fail on 1). The classifier is in [s
 - **Crypto:** [src/crypto/typeModels.ts](../src/crypto/typeModels.ts), [src/crypto/keyChain.ts](../src/crypto/keyChain.ts), [src/crypto/decryptInstance.ts](../src/crypto/decryptInstance.ts), [src/crypto/formerGroupKey.ts](../src/crypto/formerGroupKey.ts)
 - **REST:** [src/rest.ts](../src/rest.ts), [src/http.ts](../src/http.ts)
 - **Blob:** [src/blobToken.ts](../src/blobToken.ts)
-- **CLI commands:** [src/cli/mailbox.ts](../src/cli/mailbox.ts), [src/cli/commands/envelope.ts](../src/cli/commands/envelope.ts), [src/cli/commands/message.ts](../src/cli/commands/message.ts), [src/cli/loadMailBody.ts](../src/cli/loadMailBody.ts)
+- **CLI commands:** [src/cli/mailbox.ts](../src/cli/mailbox.ts), [src/cli/commands/envelope.ts](../src/cli/commands/envelope.ts), [src/cli/commands/message.ts](../src/cli/commands/message.ts), [src/cli/loadMailBody.ts](../src/cli/loadMailBody.ts), [src/cli/loadAttachments.ts](../src/cli/loadAttachments.ts)
 
 Run commands with `--verbose` to see request URLs and response shape. For setup and command reference, see the [README](../README.md).
