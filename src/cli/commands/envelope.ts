@@ -9,7 +9,7 @@ import {
   decryptParsedInstance,
   type ServerInstance,
 } from "../../crypto/decryptInstance.js";
-import { MAIL_SET, MAIL_SET_ENTRY, MAIL } from "../../crypto/typeModels.js";
+import { MAIL_SET, MAIL_SET_ENTRY, MAIL, MAIL_ADDRESS } from "../../crypto/typeModels.js";
 import { loadEntity, loadRange, GENERATED_MAX_ID } from "../../rest.js";
 import { unwrapSingleElementArray } from "../../utils/bytes.js";
 import * as context from "../context.js";
@@ -18,7 +18,28 @@ import * as mailbox from "../mailbox.js";
 import { getFolderDisplayName } from "./folders.js";
 
 /** Max width for Subject column in envelope list (pretty table). Used for both data truncation and table colMaxWidths. */
-const ENVELOPE_LIST_SUBJECT_MAX_WIDTH = 150;
+const ENVELOPE_LIST_SUBJECT_MAX_WIDTH = 100;
+
+/** Max width for From column in pretty envelope list. */
+const ENVELOPE_LIST_FROM_MAX_WIDTH = 40;
+
+/** Format an ISO date string or timestamp for pretty table: "YYYY-MM-DD HH:mm" in local time. */
+function formatDateForPretty(isoOrNull: string | number | null): string {
+  if (isoOrNull == null || isoOrNull === "") return "";
+  const parsed =
+    typeof isoOrNull === "number"
+      ? new Date(isoOrNull)
+      : /^\d+$/.test(String(isoOrNull))
+        ? new Date(Number(isoOrNull))
+        : new Date(isoOrNull);
+  if (Number.isNaN(parsed.getTime())) return String(isoOrNull);
+  const y = parsed.getFullYear();
+  const mo = String(parsed.getMonth() + 1).padStart(2, "0");
+  const day = String(parsed.getDate()).padStart(2, "0");
+  const h = String(parsed.getHours()).padStart(2, "0");
+  const min = String(parsed.getMinutes()).padStart(2, "0");
+  return `${y}-${mo}-${day} ${h}:${min}`;
+}
 
 export interface EnvelopeListOptions {
   output?: string;
@@ -196,9 +217,6 @@ export async function runEnvelopeList(
             : mailRaw;
         const attachments115 = safeMail["115"];
         const attachmentCount = Array.isArray(attachments115) ? attachments115.length : 0;
-        if (verbose) {
-          console.error("[verbose] Mail", typeof mailId === "string" ? mailId : mailId[0] + "/" + mailId[1], "attachments (115):", attachments115, typeof attachments115 === "object" ? `(length ${Array.isArray(attachments115) ? attachments115.length : "n/a"})` : "");
-        }
         const mailSk = resolveSessionKey(keyChain, safeMail, MAIL);
         const mailDec = decryptParsedInstance(MAIL, safeMail, mailSk ?? null);
         const d = mailDec as ServerInstance;
@@ -206,14 +224,40 @@ export async function runEnvelopeList(
           if (v == null) return null;
           if (v instanceof Date) return v.toISOString();
           if (typeof v === "number") return new Date(v).toISOString();
-          return String(v);
+          const s = String(v);
+          if (/^\d+$/.test(s)) return new Date(Number(s)).toISOString();
+          return s;
         };
         const senderAgg = mailRaw["111"];
         const sender = unwrapSingleElementArray(senderAgg);
-        const senderAddress =
-          sender != null && typeof sender === "object" && "95" in sender
-            ? String((sender as Record<string, unknown>)["95"] ?? "")
-            : null;
+        let senderName: string | null = null;
+        let senderAddress: string | null = null;
+        if (sender != null && typeof sender === "object") {
+          const senderObj = sender as Record<string, unknown>;
+          try {
+            const decSender = decryptParsedInstance(
+              MAIL_ADDRESS,
+              senderObj,
+              mailSk ?? null
+            ) as Record<string, unknown>;
+            senderName =
+              decSender["94"] != null && String(decSender["94"]).trim() !== ""
+                ? String(decSender["94"]).trim()
+                : null;
+            senderAddress =
+              decSender["95"] != null && String(decSender["95"]).trim() !== ""
+                ? String(decSender["95"]).trim()
+                : null;
+          } catch {
+            senderAddress =
+              "95" in senderObj && senderObj["95"] != null
+                ? String(senderObj["95"]).trim()
+                : null;
+          }
+        }
+        if (senderAddress == null && sender != null && typeof sender === "object" && "95" in (sender as object)) {
+          senderAddress = String((sender as Record<string, unknown>)["95"] ?? "").trim() || null;
+        }
         // Use element id from loaded Mail response (99); server may return full id (listId,elementId) so extract element id only for display
         const responseId = safeMail["99"];
         const elementIdOnly = ((): string => {
@@ -229,7 +273,8 @@ export async function runEnvelopeList(
         return {
           id: idForJson,
           subject: String(d["105"] ?? ""),
-          senderAddress,
+          senderName: senderName ?? null,
+          senderAddress: senderAddress ?? null,
           receivedDate: toDateStr(d["107"]) ?? null,
           unread: d["109"] === true || d["109"] === 1 || d["109"] === "1",
           state: d["108"] != null ? Number(d["108"]) : null,
@@ -259,11 +304,26 @@ export async function runEnvelopeList(
       if (nextCursor != null) jsonPayload.nextCursor = nextCursor;
       console.log(JSON.stringify(jsonPayload));
     } else {
-      const header = ["Id", "Subject", "Date", "From", "Unread", "State", "Attachments"];
       const plainFormat = output.getPlainFormat(getOpts());
       const subjectMaxLen = plainFormat === "pretty" ? ENVELOPE_LIST_SUBJECT_MAX_WIDTH : Number.MAX_SAFE_INTEGER;
+      const header =
+        plainFormat === "pretty"
+          ? ["Id", "Flags", "Subject", "Date", "From", "State"]
+          : ["Id", "Flags", "Subject", "Date", "From", "Sender address", "State"];
       const dataRows = toShow.map((m) => {
-        const fromPart = m.senderAddress != null ? m.senderAddress : "";
+        const namePart = (m.senderName ?? "").trim();
+        const addrPart = (m.senderAddress ?? "").trim();
+        let fromPart =
+          plainFormat === "pretty"
+            ? namePart && addrPart
+              ? `${namePart} (${addrPart})`
+              : namePart || addrPart
+            : namePart;
+        if (plainFormat === "pretty" && fromPart.length > ENVELOPE_LIST_FROM_MAX_WIDTH) {
+          fromPart = fromPart.slice(0, ENVELOPE_LIST_FROM_MAX_WIDTH - 3) + "...";
+        }
+        const senderAddressPart = plainFormat === "tsv" ? addrPart : "";
+        const flags = (m.unread ? "*" : "") + (m.attachmentCount > 0 ? "@" : "");
         let statePart = "Unknown";
         if (m.state === 0) statePart = "Draft";
         if (m.state === 1) statePart = "Sent";
@@ -273,40 +333,30 @@ export async function runEnvelopeList(
         if (subjectPart.length > subjectMaxLen) {
           subjectPart = subjectPart.slice(0, subjectMaxLen - 3) + "...";
         }
-        return [m.id, subjectPart, m.receivedDate ?? "", fromPart, m.unread ? "Yes" : "No", statePart, String(m.attachmentCount)];
+        const datePart =
+          plainFormat === "pretty" ? formatDateForPretty(m.receivedDate) : (m.receivedDate ?? "");
+        const row =
+          plainFormat === "pretty"
+            ? [m.id, flags, subjectPart, datePart, fromPart, statePart]
+            : [m.id, flags, subjectPart, m.receivedDate ?? "", fromPart, senderAddressPart, statePart];
+        return row;
       });
       const rows = [header, ...dataRows];
       const tableOptions =
         plainFormat === "pretty"
-          ? { colMaxWidths: { 0: 512, 1: ENVELOPE_LIST_SUBJECT_MAX_WIDTH, 3: 512 }, keepFullWidthColumns: [0, 3] }
-          : undefined;
+          ? {
+              colMaxWidths: {
+                0: 512,
+                2: ENVELOPE_LIST_SUBJECT_MAX_WIDTH,
+                4: ENVELOPE_LIST_FROM_MAX_WIDTH,
+              },
+              preferExtraWidthForColumn: 2,
+            }
+          : {
+              colMaxWidths: { 0: 512, 2: ENVELOPE_LIST_SUBJECT_MAX_WIDTH, 4: 512, 5: 512 },
+            };
       output.printTable(rows, plainFormat, tableOptions);
-      if (verbose) {
-        for (const m of toShow) {
-          const meta: string[] = [
-            `id=${m.id}`,
-            `from=${m.senderAddress ?? ""}`,
-            `state=${m.state ?? ""}`,
-            `unread=${m.unread}`,
-            `attachmentCount=${m.attachmentCount}`,
-            `confidential=${m.confidential}`,
-            `recipientCount=${m.recipientCount ?? ""}`,
-            `replyType=${m.replyType ?? ""}`,
-            `method=${m.method ?? ""}`,
-            `processingState=${m.processingState ?? ""}`,
-            `processNeeded=${m.processNeeded}`,
-          ];
-          if (m.sendAt != null) meta.push(`sendAt=${m.sendAt}`);
-          if (m.movedTime != null) meta.push(`movedTime=${m.movedTime}`);
-          if (m.phishingStatus != null) meta.push(`phishingStatus=${m.phishingStatus}`);
-          if (m.authStatus != null) meta.push(`authStatus=${m.authStatus}`);
-          if (m.differentEnvelopeSender) meta.push(`differentEnvelopeSender=${m.differentEnvelopeSender}`);
-          if (m.listUnsubscribe) meta.push("listUnsubscribe=true");
-          if (m.encryptionAuthStatus != null) meta.push(`encryptionAuthStatus=${m.encryptionAuthStatus}`);
-          if (m.keyVerificationState != null) meta.push(`keyVerificationState=${m.keyVerificationState}`);
-          console.log(`    ${meta.join("  ")}`);
-        }
-      }
+
       if (plainFormat === "pretty" && nextCursor != null) {
         const total = toShow.length;
         const unreadCount = toShow.filter((m) => m.unread).length;

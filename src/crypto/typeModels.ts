@@ -121,6 +121,18 @@ export const MAIL_SET_ENTRY: TypeModel = {
   },
 };
 
+/** MailAddress: aggregated under Mail (111 = sender). Name (94) encrypted, address (95) not. */
+export const MAIL_ADDRESS: TypeModel = {
+  app: "tutanota",
+  name: "MailAddress",
+  version: 102,
+  encrypted: false,
+  values: {
+    "94": { id: 94, type: "String", encrypted: true },
+    "95": { id: 95, type: "String", encrypted: false },
+  },
+};
+
 /** Mail: encrypted; subject, dates, flags, owner fields; extended metadata for list output. */
 export const MAIL: TypeModel = {
   app: "tutanota",

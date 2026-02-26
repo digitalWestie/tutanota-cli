@@ -30,6 +30,8 @@ export interface PrintTableOptions {
   colMaxWidths?: Record<number, number>;
   /** Column indices that are never shrunk for terminal width and never truncated with "...". */
   keepFullWidthColumns?: number[];
+  /** When table is too wide, assign leftover width (after even redistribution) to this column index (e.g. 2 for Subject). */
+  preferExtraWidthForColumn?: number;
 }
 
 export function printTable(
@@ -48,8 +50,10 @@ export function printTable(
       : (options as PrintTableOptions) ?? {};
   const colMaxWidths = opts.colMaxWidths;
   const keepFull = new Set(opts.keepFullWidthColumns ?? []);
+  const preferExtraWidthForColumn = opts.preferExtraWidthForColumn;
 
   const cols = rows[0].length;
+
   const widths: number[] = [];
   for (let j = 0; j < cols; j++) {
     const cap = colMaxWidths?.[j] ?? MAX_COL_WIDTH;
@@ -60,14 +64,24 @@ export function printTable(
     }
     widths[j] = max;
   }
+
   const termCols = typeof process.stdout.columns === "number" ? process.stdout.columns : null;
-  let totalWidth = widths.reduce((a, b) => a + b, 0) + (cols - 1) * 2;
+  const totalWidth = widths.reduce((a, b) => a + b, 0) + (cols - 1) * 2;
   if (termCols != null && totalWidth > termCols && cols > 0) {
-    const maxPerCol = Math.max(10, Math.floor(termCols / cols) - 2);
+    const spacing = (cols - 1) * 2;
+    const availableWidth = termCols - spacing;
+    const evenShare = Math.max(10, Math.floor(availableWidth / cols));
     for (let j = 0; j < cols; j++) {
-      if (!keepFull.has(j)) widths[j] = Math.min(widths[j], maxPerCol);
+      if (!keepFull.has(j)) widths[j] = Math.min(widths[j], evenShare);
     }
-    totalWidth = widths.reduce((a, b) => a + b, 0) + (cols - 1) * 2;
+    const usedAfterRedist = widths.reduce((a, b) => a + b, 0);
+    const leftover = availableWidth - usedAfterRedist;
+    if (leftover > 0 && preferExtraWidthForColumn != null && preferExtraWidthForColumn >= 0 && preferExtraWidthForColumn < cols) {
+      const j = preferExtraWidthForColumn;
+      const cap = colMaxWidths?.[j] ?? MAX_COL_WIDTH;
+      const add = Math.min(leftover, cap - widths[j]);
+      if (add > 0) widths[j] += add;
+    }
   }
   for (let i = 0; i < rows.length; i++) {
     const row = rows[i];
