@@ -133,6 +133,18 @@ flowchart LR
 
 ---
 
+## Exit codes
+
+The CLI uses the following exit codes for scripting:
+
+- **0** – Success.
+- **1** – Usage or auth error (invalid arguments, unknown output format, missing input, session expired/invalid, login failure, HTTP 4xx).
+- **2** – Network or server error (connection failed, fetch failed, HTTP 5xx).
+
+Scripts can branch on `$?` (e.g. retry on 2, fail on 1). The classifier is in [src/cli/exitCodes.ts](../src/cli/exitCodes.ts).
+
+---
+
 ## Where to look next
 
 **By concern:**

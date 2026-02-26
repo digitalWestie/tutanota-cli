@@ -6,6 +6,7 @@ import { clearSession, readSession } from "../../session.js";
 import { resolveSessionKey, decryptParsedInstance, type ServerInstance } from "../../crypto/decryptInstance.js";
 import { MAIL_SET } from "../../crypto/typeModels.js";
 import * as context from "../context.js";
+import { exitCodeForError } from "../exitCodes.js";
 import * as output from "../output.js";
 import * as mailbox from "../mailbox.js";
 
@@ -171,7 +172,7 @@ export function registerFoldersCommands(
           if (verbose && err instanceof Error && err.stack) console.error("[verbose] stack:", err.stack);
           console.error("Error:", message);
         }
-        process.exit(1);
+        process.exit(exitCodeForError(err));
       }
     });
 }

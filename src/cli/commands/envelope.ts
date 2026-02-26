@@ -13,6 +13,7 @@ import { MAIL_SET, MAIL_SET_ENTRY, MAIL, MAIL_ADDRESS } from "../../crypto/typeM
 import { loadEntity, loadRange, GENERATED_MAX_ID } from "../../rest.js";
 import { unwrapSingleElementArray } from "../../utils/bytes.js";
 import * as context from "../context.js";
+import { exitCodeForError } from "../exitCodes.js";
 import * as output from "../output.js";
 import * as mailbox from "../mailbox.js";
 import { getFolderDisplayName } from "./folders.js";
@@ -377,7 +378,7 @@ export async function runEnvelopeList(
       if (verbose && err instanceof Error && err.stack) console.error("[verbose] stack:", err.stack);
       console.error("Error:", message);
     }
-    process.exit(1);
+    process.exit(exitCodeForError(err));
   }
 }
 

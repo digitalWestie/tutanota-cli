@@ -12,6 +12,7 @@ import { MAIL } from "../../crypto/typeModels.js";
 import { loadEntity } from "../../rest.js";
 import { unwrapSingleElementArray } from "../../utils/bytes.js";
 import * as context from "../context.js";
+import { exitCodeForError } from "../exitCodes.js";
 import * as output from "../output.js";
 import * as mailbox from "../mailbox.js";
 import { loadMailBody } from "../loadMailBody.js";
@@ -188,7 +189,7 @@ export async function runMessageRead(
       if (verbose && err instanceof Error && err.stack) console.error("[verbose] stack:", err.stack);
       console.error("Error:", message);
     }
-    process.exit(1);
+    process.exit(exitCodeForError(err));
   }
 }
 

@@ -9,6 +9,7 @@ import {
 import { getErrorMessage, setVerbose } from "../../logger.js";
 import { clearSession, getSessionPath } from "../../session.js";
 import * as context from "../context.js";
+import { exitCodeForError } from "../exitCodes.js";
 import * as output from "../output.js";
 
 export function registerAccountCommands(
@@ -61,7 +62,7 @@ export function registerAccountCommands(
         } else {
           console.error("Error:", message);
         }
-        process.exit(1);
+        process.exit(exitCodeForError(err));
       }
     });
 
@@ -200,7 +201,7 @@ export function registerAccountCommands(
             console.error("Error:", message);
           }
         }
-        process.exit(1);
+        process.exit(exitCodeForError(err));
       }
     });
 }
