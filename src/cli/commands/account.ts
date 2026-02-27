@@ -34,19 +34,26 @@ export function registerAccountCommands(
         if (verbose) console.error("[verbose] API base URL:", baseUrl);
         const { result, usedStoredSession } = await context.getOrCreateSession(baseUrl, verbose);
 
+        const status = "Authenticated";
+        const sessionIdStr = result.sessionId.join("/");
+        const storagePath = getSessionPath();
+
         if (useJson) {
           console.log(
             JSON.stringify({
               ok: true,
               sessionVerified: true,
+              status,
               userId: result.userId,
               sessionId: result.sessionId,
+              stored: usedStoredSession,
+              storagePath,
             })
           );
         } else {
           const rows = [
-            ["Status", "UserId", "Session ID", "Stored?", "Storage Path"],
-            ["Authenticated", String(result.userId), result.sessionId.join("/"), String(usedStoredSession), getSessionPath()],
+            ["Status", "User Id", "Session Id", "Stored", "Storage Path"],
+            [status, String(result.userId), sessionIdStr, String(usedStoredSession), storagePath],
           ];
           output.printTable(rows, output.getPlainFormat(getOpts()));
         }

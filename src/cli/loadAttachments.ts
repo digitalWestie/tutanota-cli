@@ -88,14 +88,14 @@ function getBlobBytes(
   return blobMap.get(blobId) ?? undefined;
 }
 
-/** Parse mail-id string into [listId, elementId]. Same format as 'envelope list --output json'. */
+/** Parse mail-id string into [listId, elementId]. Same format as 'envelope list --format json'. */
 function parseMailIdForAttachment(mailId: string): [string, string] {
   const trimmed = mailId.trim();
   if (trimmed.includes("/")) {
     const parts = trimmed.split("/");
     if (parts.length >= 2 && parts[0] && parts[1]) return [parts[0].trim(), parts[1].trim()];
   }
-  throw new Error(`Invalid mail-id: "${mailId}". Use format listId/elementId (e.g. from 'envelope list --output json').`);
+  throw new Error(`Invalid mail-id: "${mailId}". Use format listId/elementId (e.g. from 'envelope list --format json').`);
 }
 
 /**

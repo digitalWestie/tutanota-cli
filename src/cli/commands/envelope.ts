@@ -271,6 +271,9 @@ export async function runEnvelopeList(
         })();
         const idForJson =
           typeof mailId === "string" ? mailId : mailId[0] + "/" + elementIdOnly;
+        const stateNum = d["108"] != null ? Number(d["108"]) : null;
+        const stateLabel =
+          stateNum === 0 ? "Draft" : stateNum === 1 ? "Sent" : stateNum === 2 ? "Received" : stateNum === 3 ? "Sending" : "Unknown";
         return {
           id: idForJson,
           subject: String(d["105"] ?? ""),
@@ -278,7 +281,8 @@ export async function runEnvelopeList(
           senderAddress: senderAddress ?? null,
           receivedDate: toDateStr(d["107"]) ?? null,
           unread: d["109"] === true || d["109"] === 1 || d["109"] === "1",
-          state: d["108"] != null ? Number(d["108"]) : null,
+          state: stateNum,
+          stateLabel,
           confidential: d["426"] === true,
           replyType: d["466"] != null ? Number(d["466"]) : null,
           differentEnvelopeSender: d["617"] != null ? String(d["617"]) : null,
@@ -307,56 +311,60 @@ export async function runEnvelopeList(
     } else {
       const plainFormat = output.getPlainFormat(getOpts());
       const subjectMaxLen = plainFormat === "pretty" ? ENVELOPE_LIST_SUBJECT_MAX_WIDTH : Number.MAX_SAFE_INTEGER;
-      const header =
-        plainFormat === "pretty"
-          ? ["Id", "Flags", "Subject", "Date", "From", "State"]
-          : ["Id", "Flags", "Subject", "Date", "From", "Sender address", "State"];
-      const dataRows = toShow.map((m) => {
-        const namePart = (m.senderName ?? "").trim();
-        const addrPart = (m.senderAddress ?? "").trim();
-        let fromPart =
-          plainFormat === "pretty"
-            ? namePart && addrPart
-              ? `${namePart} (${addrPart})`
-              : namePart || addrPart
-            : namePart;
-        if (plainFormat === "pretty" && fromPart.length > ENVELOPE_LIST_FROM_MAX_WIDTH) {
-          fromPart = fromPart.slice(0, ENVELOPE_LIST_FROM_MAX_WIDTH - 3) + "...";
-        }
-        const senderAddressPart = plainFormat === "tsv" ? addrPart : "";
-        const flags = (m.unread ? "*" : "") + (m.attachmentCount > 0 ? "@" : "");
-        let statePart = "Unknown";
-        if (m.state === 0) statePart = "Draft";
-        if (m.state === 1) statePart = "Sent";
-        if (m.state === 2) statePart = "Received";
-        if (m.state === 3) statePart = "Sending";
-        let subjectPart = m.subject.replace(/\r\n|\r|\n/g, " ").trim();
-        if (subjectPart.length > subjectMaxLen) {
-          subjectPart = subjectPart.slice(0, subjectMaxLen - 3) + "...";
-        }
-        const datePart =
-          plainFormat === "pretty" ? formatDateForPretty(m.receivedDate) : (m.receivedDate ?? "");
-        const row =
-          plainFormat === "pretty"
-            ? [m.id, flags, subjectPart, datePart, fromPart, statePart]
-            : [m.id, flags, subjectPart, m.receivedDate ?? "", fromPart, senderAddressPart, statePart];
-        return row;
-      });
-      const rows = [header, ...dataRows];
-      const tableOptions =
-        plainFormat === "pretty"
-          ? {
-              colMaxWidths: {
-                0: 512,
-                2: ENVELOPE_LIST_SUBJECT_MAX_WIDTH,
-                4: ENVELOPE_LIST_FROM_MAX_WIDTH,
-              },
-              preferExtraWidthForColumn: 2,
-            }
-          : {
-              colMaxWidths: { 0: 512, 2: ENVELOPE_LIST_SUBJECT_MAX_WIDTH, 4: 512, 5: 512 },
-            };
-      output.printTable(rows, plainFormat, tableOptions);
+
+      if (plainFormat === "tsv") {
+        const header = [
+          "Id",
+          "Subject",
+          "Received Date",
+          "Sender Name",
+          "Sender Address",
+          "Unread",
+          "Attachment Count",
+          "State",
+          "State Label",
+        ];
+        const dataRows = toShow.map((m) => [
+          m.id,
+          m.subject.replace(/\r\n|\r|\n/g, " ").trim(),
+          m.receivedDate ?? "",
+          (m.senderName ?? "").trim(),
+          (m.senderAddress ?? "").trim(),
+          String(m.unread),
+          String(m.attachmentCount),
+          String(m.state ?? ""),
+          m.stateLabel,
+        ]);
+        output.printTable([header, ...dataRows], "tsv");
+      } else {
+        const header = ["Id", "Flags", "Subject", "Date", "From", "State"];
+        const dataRows = toShow.map((m) => {
+          const namePart = (m.senderName ?? "").trim();
+          const addrPart = (m.senderAddress ?? "").trim();
+          const fromPart =
+            namePart && addrPart ? `${namePart} (${addrPart})` : namePart || addrPart;
+          const fromTrimmed =
+            fromPart.length > ENVELOPE_LIST_FROM_MAX_WIDTH
+              ? fromPart.slice(0, ENVELOPE_LIST_FROM_MAX_WIDTH - 3) + "..."
+              : fromPart;
+          const flags = (m.unread ? "*" : "") + (m.attachmentCount > 0 ? "@" : "");
+          let subjectPart = m.subject.replace(/\r\n|\r|\n/g, " ").trim();
+          if (subjectPart.length > subjectMaxLen) {
+            subjectPart = subjectPart.slice(0, subjectMaxLen - 3) + "...";
+          }
+          const datePart = formatDateForPretty(m.receivedDate);
+          return [m.id, flags, subjectPart, datePart, fromTrimmed, m.stateLabel];
+        });
+        const rows = [header, ...dataRows];
+        output.printTable(rows, "pretty", {
+          colMaxWidths: {
+            0: 512,
+            2: ENVELOPE_LIST_SUBJECT_MAX_WIDTH,
+            4: ENVELOPE_LIST_FROM_MAX_WIDTH,
+          },
+          preferExtraWidthForColumn: 2,
+        });
+      }
 
       if (plainFormat === "pretty" && nextCursor != null) {
         const total = toShow.length;

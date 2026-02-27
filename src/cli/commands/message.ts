@@ -19,14 +19,14 @@ import { loadMailBody } from "../loadMailBody.js";
 import { runAttachmentDownload } from "../loadAttachments.js";
 import { htmlToPlainText } from "../../utils/htmlToPlainText.js";
 
-/** Parse mail-id string into [listId, elementId]. Use ids from 'envelope list --output json'. */
+/** Parse mail-id string into [listId, elementId]. Use ids from 'envelope list --format json'. */
 export function parseMailId(mailId: string): [string, string] {
   const trimmed = mailId.trim();
   if (trimmed.includes("/")) {
     const parts = trimmed.split("/");
     if (parts.length >= 2 && parts[0] && parts[1]) return [parts[0].trim(), parts[1].trim()];
   }
-  throw new Error(`Invalid mail-id: "${mailId}". Use format listId/elementId (e.g. from 'envelope list --output json').`);
+  throw new Error(`Invalid mail-id: "${mailId}". Use format listId/elementId (e.g. from 'envelope list --format json').`);
 }
 
 function getSenderFromMail(decryptedMail: ServerInstance): string {
@@ -71,7 +71,7 @@ export async function runMessageRead(
   const plainFormat = output.getPlainFormat(getOpts());
 
   if (mailIds.length === 0) {
-    console.error("Error: At least one mail-id is required. Use ids from 'envelope list --output json'.");
+    console.error("Error: At least one mail-id is required. Use ids from 'envelope list --format json'.");
     process.exit(1);
   }
 
@@ -163,13 +163,17 @@ export async function runMessageRead(
       }));
       console.log(JSON.stringify(results.length === 1 ? out[0] : out));
     } else if (plainFormat === "tsv") {
-      for (const r of results) {
-        console.log("From:\t" + r.from);
-        console.log("Subject:\t" + r.subject.replace(/\t|\n/g, " "));
-        console.log("Date:\t" + (r.date ?? ""));
-        console.log("Body:\t" + (r.bodyTextPlain ?? htmlToPlainText(r.bodyText)).replace(/\n/g, " ").replace(/\t/g, " "));
-        if (results.length > 1) console.log("---");
-      }
+      const header = ["Id", "From", "Subject", "Date", "Body"];
+      const bodyPlain = (r: (typeof results)[0]) =>
+        (r.bodyTextPlain ?? htmlToPlainText(r.bodyText)).replace(/\n/g, " ").replace(/\t/g, " ");
+      const dataRows = results.map((r) => [
+        r.id,
+        r.from,
+        r.subject.replace(/\t|\n/g, " "),
+        r.date ?? "",
+        bodyPlain(r),
+      ]);
+      output.printTable([header, ...dataRows], "tsv");
     } else {
       for (let i = 0; i < results.length; i++) {
         const r = results[i];
@@ -206,7 +210,7 @@ export function registerMessageCommands(
   messageCmd
     .command("read <mail-id> [other-ids...]")
     .description(
-      "Read full message(s) by mail-id (from 'envelope list --output json'). Prints headers and body. Multiple ids supported."
+      "Read full message(s) by mail-id (from 'envelope list --format json'). Prints headers and body. Multiple ids supported."
     )
     .option("--verbose, -v", "Verbose logging")
     .action(
@@ -226,18 +230,19 @@ export function registerMessageCommands(
 
   messageCmd
     .command("attachment <mail-id>")
-    .description("Download attachments from a message by mail-id (from 'envelope list --output json').")
-    .option("--output-dir <dir>", "Directory to save files (default: current directory)", ".")
+    .description("Download attachments from a message by mail-id (from 'envelope list --format json').")
+    .option("--output <dir>", "Directory to save files (default: current directory)", ".")
     .option("--index <n>", "Download only the nth attachment (1-based)", (v) => parseInt(v, 10))
     .option("--verbose, -v", "Verbose logging")
     .action(
       async (
         mailId: string,
-        opts: { outputDir?: string; index?: number; verbose?: boolean; V?: boolean }
+        opts: { output?: string; index?: number; verbose?: boolean; V?: boolean }
       ) => {
         const verbose = opts.verbose ?? opts.V ?? false;
         if (verbose) setVerbose(true);
         const useJson = output.getOutputFormat(getOpts());
+        const plainFormat = output.getPlainFormat(getOpts());
 
         try {
           const baseUrl = getApiBaseUrl();
@@ -271,7 +276,7 @@ export function registerMessageCommands(
           const saved = await runAttachmentDownload(
             mailId,
             {
-              outputDir: opts.outputDir ?? ".",
+              outputDir: opts.output ?? ".",
               index: opts.index,
               verbose,
             },
@@ -293,6 +298,10 @@ export function registerMessageCommands(
 
           if (useJson) {
             console.log(JSON.stringify(saved.map((s) => ({ name: s.name, path: s.path, size: s.size }))));
+          } else if (plainFormat === "tsv") {
+            const header = ["Name", "Path", "Size"];
+            const dataRows = saved.map((s) => [s.name, s.path, String(s.size)]);
+            output.printTable([header, ...dataRows], "tsv");
           } else {
             for (const s of saved) {
               console.log("Saved:", s.path);

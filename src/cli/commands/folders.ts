@@ -156,7 +156,7 @@ export function registerFoldersCommands(
           console.log(JSON.stringify({ folders }));
         } else {
           const rows = [
-            ["Name", "Id", "FolderType"],
+            ["Name", "Id", "Folder Type"],
             ...folders.map((f) => [f.name, f.id, String(f.folderType)]),
           ];
           output.printTable(rows, output.getPlainFormat(getOpts()));

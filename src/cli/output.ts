@@ -4,10 +4,18 @@
 
 import kleur from "kleur";
 
-export type OutputOpts = { output?: string; o?: string; O?: string };
+export type OutputOpts = { format?: string; f?: string };
+
+/** Convert camelCase to Title Case for TSV/table headers (e.g. receivedDate -> Received Date). */
+export function camelToTitleCase(camel: string): string {
+  return camel
+    .replace(/([A-Z])/g, " $1")
+    .replace(/^./, (s) => s.toUpperCase())
+    .trim();
+}
 
 export function getOutputOption(opts: OutputOpts): string {
-  return opts.output ?? opts.o ?? opts.O ?? "pretty";
+  return opts.format ?? opts.f ?? "pretty";
 }
 
 export function getOutputFormat(opts: OutputOpts): boolean {

@@ -6,55 +6,64 @@ import {
   getOutputFormat,
   getPlainFormat,
   printTable,
+  camelToTitleCase,
   type OutputOpts,
 } from "./output.js";
 
 describe("output", () => {
+  describe("camelToTitleCase", () => {
+    test("converts camelCase to Title Case", () => {
+      assert.equal(camelToTitleCase("receivedDate"), "Received Date");
+      assert.equal(camelToTitleCase("userId"), "User Id");
+      assert.equal(camelToTitleCase("folderType"), "Folder Type");
+      assert.equal(camelToTitleCase("id"), "Id");
+    });
+  });
+
   describe("getOutputOption", () => {
-    test("returns output when set", () => {
-      assert.equal(getOutputOption({ output: "json" }), "json");
-      assert.equal(getOutputOption({ output: "tsv" }), "tsv");
-      assert.equal(getOutputOption({ output: "pretty" }), "pretty");
+    test("returns format when set", () => {
+      assert.equal(getOutputOption({ format: "json" }), "json");
+      assert.equal(getOutputOption({ format: "tsv" }), "tsv");
+      assert.equal(getOutputOption({ format: "pretty" }), "pretty");
     });
 
-    test("returns o when output is missing", () => {
-      assert.equal(getOutputOption({ o: "json" }), "json");
-      assert.equal(getOutputOption({ O: "tsv" }), "tsv");
+    test("returns f when format is missing", () => {
+      assert.equal(getOutputOption({ f: "json" }), "json");
+      assert.equal(getOutputOption({ f: "tsv" }), "tsv");
     });
 
-    test("prefers output over o over O", () => {
-      assert.equal(getOutputOption({ output: "json", o: "tsv", O: "pretty" }), "json");
-      assert.equal(getOutputOption({ o: "tsv", O: "pretty" }), "tsv");
-      assert.equal(getOutputOption({ O: "pretty" }), "pretty");
+    test("prefers format over f", () => {
+      assert.equal(getOutputOption({ format: "json", f: "tsv" }), "json");
+      assert.equal(getOutputOption({ f: "tsv" }), "tsv");
     });
 
     test("returns default pretty when opts empty or all missing", () => {
       assert.equal(getOutputOption({}), "pretty");
-      assert.equal(getOutputOption({ output: undefined, o: undefined }), "pretty");
+      assert.equal(getOutputOption({ format: undefined, f: undefined }), "pretty");
     });
   });
 
   describe("getOutputFormat", () => {
     test("returns true when format is json", () => {
-      assert.equal(getOutputFormat({ output: "json" }), true);
-      assert.equal(getOutputFormat({ o: "json" }), true);
+      assert.equal(getOutputFormat({ format: "json" }), true);
+      assert.equal(getOutputFormat({ f: "json" }), true);
     });
 
     test("returns false for pretty and tsv", () => {
-      assert.equal(getOutputFormat({ output: "pretty" }), false);
-      assert.equal(getOutputFormat({ output: "tsv" }), false);
+      assert.equal(getOutputFormat({ format: "pretty" }), false);
+      assert.equal(getOutputFormat({ format: "tsv" }), false);
       assert.equal(getOutputFormat({}), false);
     });
   });
 
   describe("getPlainFormat", () => {
     test("returns tsv when format is tsv", () => {
-      assert.equal(getPlainFormat({ output: "tsv" }), "tsv");
+      assert.equal(getPlainFormat({ format: "tsv" }), "tsv");
     });
 
     test("returns pretty for pretty and json (json is valid but plain is pretty)", () => {
-      assert.equal(getPlainFormat({ output: "pretty" }), "pretty");
-      assert.equal(getPlainFormat({ output: "json" }), "pretty");
+      assert.equal(getPlainFormat({ format: "pretty" }), "pretty");
+      assert.equal(getPlainFormat({ format: "json" }), "pretty");
       assert.equal(getPlainFormat({}), "pretty");
     });
 
@@ -70,7 +79,7 @@ describe("output", () => {
           errLog.push(args);
         };
         assert.throws(
-          () => getPlainFormat({ output: "invalid" as string }),
+          () => getPlainFormat({ format: "invalid" as string }),
           (thrown: { exitCode?: number; isExit?: boolean }) => thrown.isExit === true && thrown.exitCode === 1
         );
         assert.equal(errLog.length, 1);

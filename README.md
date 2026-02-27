@@ -51,7 +51,7 @@ After a successful login, the CLI stores a session in a file so that later comma
 
 ## Global options
 
-- `--output`, `-o` **&lt;format&gt;** – Output format: `pretty`, `tsv`, or `json` (default: `pretty`). **pretty** shows aligned columns for easier reading in the terminal; **tsv** is tab-separated for spreadsheet paste and scripting. Use `--output tsv` when piping or copying into a spreadsheet; use `--output json` for machine-readable output.
+- `--format`, `-f` **&lt;format&gt;** – Output format: `pretty`, `tsv`, or `json` (default: `pretty`). **pretty** shows aligned columns for easier reading in the terminal; **tsv** is tab-separated for spreadsheet paste and scripting. Use `--format tsv` when piping or copying into a spreadsheet; use `--format json` for machine-readable output.
 
 ### Colours and formatting
 
@@ -75,7 +75,7 @@ npm start -- account check
 
 Options:
 
-- `--verbose`, `-v` – Verbose logging (request URLs, errors with cause/stack) for debugging. Use global `--output json` for JSON.
+- `--verbose`, `-v` – Verbose logging (request URLs, errors with cause/stack) for debugging. Use global `--format json` for JSON.
 
 ### `account logout`
 
@@ -90,7 +90,7 @@ npm start -- account logout
 
 Logs in (or uses the stored session) and loads your user profile. Human-readable output is three tab-separated tables: **User** (Key, Value), **Customer** (Key, Value), and **Customer info** (Key, Value). Each table has a section title line, then a header line, then one row per field. Also available as `auth profile`.
 
-With global `--output json`, the full structure is output as JSON. With `--verbose`, extra debug logs (e.g. request URLs) are printed.
+With global `--format json`, the full structure is output as JSON. With `--verbose`, extra debug logs (e.g. request URLs) are printed.
 
 ```bash
 node dist/cli.js account profile
@@ -101,7 +101,7 @@ Example output (with default output): section title "User", then "Key\tValue", t
 
 Options:
 
-- `--verbose`, `-v` – Verbose logging for debugging. Use global `--output json` for JSON.
+- `--verbose`, `-v` – Verbose logging for debugging. Use global `--format json` for JSON.
 
 ### `folders list`
 
@@ -114,7 +114,7 @@ npm start -- folders list
 
 Options:
 
-- `--verbose`, `-v` – Verbose logging (request URLs, key chain summary, and failure details when relevant). Use global `--output json` for JSON.
+- `--verbose`, `-v` – Verbose logging (request URLs, key chain summary, and failure details when relevant). Use global `--format json` for JSON.
 
 ### `envelope list [folder]`
 
@@ -131,15 +131,15 @@ Options:
 
 - `--verbose`, `-v` – Verbose logging for debugging.
 - `--count`, `-c` – Number of envelopes to list (default: 10, max: 100).
-- `--unread`, `-u` – Show only unread (filters client-side). Use global `--output json` for JSON.
-- `--cursor <id>` – Cursor for the next page (older emails). With `--output json`, the response includes `nextCursor` when more mail is available; use that value as `--cursor` on the next run. With pretty output, a one-line hint on a separate line after the table shows a copy-pasteable command for the next page when applicable. TSV output does not include cursor or hint.
+- `--unread`, `-u` – Show only unread (filters client-side). Use global `--format json` for JSON.
+- `--cursor <id>` – Cursor for the next page (older emails). With `--format json`, the response includes `nextCursor` when more mail is available; use that value as `--cursor` on the next run. With pretty output, a one-line hint on a separate line after the table shows a copy-pasteable command for the next page when applicable. TSV output does not include cursor or hint.
 
 ### `message read <mail-id> [other-ids...]`
 
-Reads one or more full messages (headers and body) by mail-id. Also available as `msg read`. The **mail-id** is the same format as the `id` field in `envelope list --output json` (e.g. `listId/elementId`). Run `envelope list --output json` to get mail ids, then pass them to `message read`. Output is human-friendly by default: From, Subject, Date, then a blank line, then the body (HTML is converted to plain text for pretty output). Draft messages are not supported.
+Reads one or more full messages (headers and body) by mail-id. Also available as `msg read`. The **mail-id** is the same format as the `id` field in `envelope list --format json` (e.g. `listId/elementId`). Run `envelope list --format json` to get mail ids, then pass them to `message read`. Output is human-friendly by default: From, Subject, Date, then a blank line, then the body (HTML is converted to plain text for pretty output). Draft messages are not supported.
 
 ```bash
-npm start -- envelope list --output json -c 5
+npm start -- envelope list --format json -c 5
 # Copy an id from the "mails" array, then:
 npm start -- message read "LISTID/ELEMENTID"
 npm start -- message read id1 id2 id3
@@ -148,24 +148,24 @@ npm start -- message read id1 id2 id3
 Options:
 
 - `--verbose`, `-v` – Verbose logging for debugging.
-- `--output`, `-o` – `pretty` (default), `tsv`, or `json`. With `json`, each message is output as an object with `id`, `from`, `subject`, `date`, and `body`.
+- Use global `--format json` for JSON (each message as object with `id`, `from`, `subject`, `date`, `body`).
 
 ### `message attachment <mail-id>`
 
-Downloads attachments from a message. Use the same **mail-id** format as `message read` (from `envelope list --output json`). Saves files to the current directory by default; use `--output-dir` to choose a folder. If a file with the same name already exists, a suffix ` (1)`, ` (2)`, etc. is added.
+Downloads attachments from a message. Use the same **mail-id** format as `message read` (from `envelope list --format json`). Saves files to the current directory by default; use `--output` to choose a folder. If a file with the same name already exists, a suffix ` (1)`, ` (2)`, etc. is added.
 
 ```bash
 npm start -- message attachment "LISTID/ELEMENTID"
-npm start -- message attachment "LISTID/ELEMENTID" --output-dir ./downloads
+npm start -- message attachment "LISTID/ELEMENTID" --output ./downloads
 npm start -- message attachment "LISTID/ELEMENTID" --index 1
 ```
 
 Options:
 
-- `--output-dir <dir>` – Directory to save files (default: current directory).
+- `--output <dir>` – Directory to save files (default: current directory).
 - `--index <n>` – Download only the nth attachment (1-based).
 - `--verbose`, `-v` – Verbose logging.
-- `--output`, `-o` – With `json`, outputs an array of `{ name, path, size }` for each saved file.
+- Use global `--format json` for JSON (array of `{ name, path, size }` for each saved file).
 
 ## Limitations
 

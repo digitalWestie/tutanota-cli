@@ -15,7 +15,7 @@ program
   .description("CLI to authenticate with and export mail from Tutanota")
   .version("0.1.0")
   .addOption(
-    new Option("--output, -o <format>", "Output format: pretty, tsv, or json (default: pretty)")
+    new Option("--format, -f <format>", "Output format: pretty, tsv, or json (default: pretty)")
       .choices(["pretty", "tsv", "json"])
       .default("pretty")
   );
