@@ -197,7 +197,7 @@ export function registerFoldersCommands(
 
         try {
           const baseUrl = getApiBaseUrl();
-          const { result, keyChain, mailGroupId, mailSetRawList } = await context.getSessionUserAndMailbox({
+          const { result, keyChain, userGroupId, mailGroupId, mailMembership, mailSetRawList } = await context.getSessionUserAndMailbox({
             baseUrl,
             verbose,
           });
@@ -230,6 +230,9 @@ export function registerFoldersCommands(
             baseUrl,
             accessToken: result.accessToken,
             keyChain,
+            mailGroupId,
+            mailMembership,
+            userGroupId,
           };
 
           let cursor: string | undefined = undefined;

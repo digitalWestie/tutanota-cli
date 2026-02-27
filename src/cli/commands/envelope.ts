@@ -2,13 +2,14 @@ import type { Command } from "commander";
 import type { KeyChain } from "../../crypto/keyChain.js";
 import kleur from "kleur";
 import { getApiBaseUrl } from "../../config.js";
-import { getErrorMessage, setVerbose } from "../../logger.js";
+import { getErrorMessage, isVerbose, log, setVerbose } from "../../logger.js";
 import { clearSession } from "../../session.js";
 import {
   resolveSessionKey,
   decryptParsedInstance,
   type ServerInstance,
 } from "../../crypto/decryptInstance.js";
+import { resolveMailSessionKeyWithFormerRetry } from "../../crypto/resolveMailSessionKey.js";
 import { MAIL_SET, MAIL_SET_ENTRY, MAIL, MAIL_ADDRESS } from "../../crypto/typeModels.js";
 import { loadEntity, loadRange, GENERATED_MAX_ID } from "../../rest.js";
 import { unwrapSingleElementArray } from "../../utils/bytes.js";
@@ -162,7 +163,7 @@ export async function runEnvelopeList(
   const folderIdTrimmed = typeof folderId === "string" ? folderId.trim() : "";
   try {
     const baseUrl = getApiBaseUrl();
-    const { result, keyChain, mailGroupId, mailSetRawList } = await context.getSessionUserAndMailbox({
+    const { result, keyChain, userGroupId, mailGroupId, mailMembership, mailSetRawList } = await context.getSessionUserAndMailbox({
       baseUrl,
       verbose,
     });
@@ -239,7 +240,28 @@ export async function runEnvelopeList(
             : mailRaw;
         const attachments115 = safeMail["115"];
         const attachmentCount = Array.isArray(attachments115) ? attachments115.length : 0;
-        const mailSk = resolveSessionKey(keyChain, safeMail, MAIL);
+        const listIdForMail = Array.isArray(mailId) ? String(mailId[0]) : undefined;
+        const elementIdForMail = Array.isArray(mailId) ? String(mailId[1]) : undefined;
+        const mailSk = await resolveMailSessionKeyWithFormerRetry(
+          baseUrl,
+          result.accessToken,
+          keyChain,
+          loadEntity,
+          loadRange,
+          mailGroupId,
+          mailMembership.groupKeyVersion,
+          safeMail,
+          listIdForMail,
+          elementIdForMail,
+          userGroupId
+        );
+        if (isVerbose() && mailSk == null) {
+          const has1310 = safeMail["1310"] != null;
+          const processNeeded = safeMail["1769"];
+          const has102 = safeMail["102"] != null && safeMail["102"] !== "";
+          const ownerKeyVer = safeMail["1395"];
+          log(`[envelope] Mail ${typeof mailId === "string" ? mailId : mailId.join("/")}: session key failed, bucketKey (1310) present=${has1310}, processNeeded (1769)=${processNeeded}, ownerEncSessionKey (102) present=${has102}, ownerKeyVersion (1395)=${ownerKeyVer}`);
+        }
         const mailDec = decryptParsedInstance(MAIL, safeMail, mailSk ?? null);
         const d = mailDec as ServerInstance;
         const toDateStr = (v: unknown): string | null => {

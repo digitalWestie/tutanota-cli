@@ -30,6 +30,7 @@ import { unwrapSingleElementArray } from "../utils/bytes.js";
 export interface LoadMailboxResult {
   result: LoginResult;
   keyChain: KeyChain;
+  userGroupId: string;
   mailGroupId: string;
   mailMembership: GroupMembershipKeyMaterial;
   mailSetRawList: ServerInstance[];
@@ -134,5 +135,6 @@ export async function loadMailboxAndMailSetList(options: {
     }
   }
 
-  return { result, keyChain, mailGroupId, mailMembership, mailSetRawList };
+  const userGroupId = keyMaterial.userGroup.group;
+  return { result, keyChain, userGroupId, mailGroupId, mailMembership, mailSetRawList };
 }

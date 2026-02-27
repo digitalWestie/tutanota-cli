@@ -5,13 +5,10 @@
 import * as fs from "fs";
 import * as path from "path";
 import type { KeyChain } from "../crypto/keyChain.js";
-import {
-  resolveSessionKey,
-  decryptParsedInstance,
-  type ServerInstance,
-} from "../crypto/decryptInstance.js";
+import { decryptParsedInstance, type ServerInstance } from "../crypto/decryptInstance.js";
+import { resolveMailSessionKeyWithFormerRetry } from "../crypto/resolveMailSessionKey.js";
 import { MAIL } from "../crypto/typeModels.js";
-import { loadEntity } from "../rest.js";
+import { loadEntity, loadRange } from "../rest.js";
 import { unwrapSingleElementArray } from "../utils/bytes.js";
 import { loadMailBody } from "./loadMailBody.js";
 import { runAttachmentDownload } from "./loadAttachments.js";
@@ -44,6 +41,9 @@ export interface ExportOneMessageOptions {
     baseUrl: string;
     accessToken: string;
     keyChain: KeyChain;
+    mailGroupId: string;
+    mailMembership: { groupKeyVersion: string };
+    userGroupId?: string;
   };
   includeAttachments?: boolean;
   /** If true and output file already exists, skip writing and return existing path. */
@@ -74,14 +74,34 @@ export async function exportOneMessageToPath(
       ? (Object.fromEntries(Object.entries(mailRaw).filter(([k]) => k !== "__proto__")) as ServerInstance)
       : mailRaw;
 
-  const mailSk = resolveSessionKey(context.keyChain, safeMail, MAIL);
+  const mailSk = await resolveMailSessionKeyWithFormerRetry(
+    context.baseUrl,
+    context.accessToken,
+    context.keyChain,
+    loadEntity,
+    loadRange,
+    context.mailGroupId,
+    context.mailMembership.groupKeyVersion,
+    safeMail,
+    listId,
+    elementId,
+    context.userGroupId
+  );
   const decryptedMail = decryptParsedInstance(MAIL, safeMail, mailSk ?? null) as ServerInstance;
 
   const { bodyText } = await loadMailBody({
     baseUrl: context.baseUrl,
     accessToken: context.accessToken,
     decryptedMail,
+    rawMail: safeMail,
     keyChain: context.keyChain,
+    mailGroupId: context.mailGroupId,
+    mailMembership: context.mailMembership,
+    userGroupId: context.userGroupId,
+    loadEntity,
+    loadRange,
+    listId,
+    elementId,
   });
 
   const from = getSenderFromMail(decryptedMail);

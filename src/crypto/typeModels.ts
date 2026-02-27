@@ -30,13 +30,14 @@ export interface TypeModel {
   values: Record<string, ValueModel>;
 }
 
-/** Group (sys): for loading formerGroupKeys list. Attribute 2273 = formerGroupKeys (aggregation ref with list id at 2269). */
+/** Group (sys): for loading formerGroupKeys list and currentKeys (KeyPair). Attribute 13 = currentKeys, 2273 = formerGroupKeys. */
 export const GROUP: TypeModel = {
   app: "sys",
   name: "Group",
   version: 143,
   encrypted: false,
   values: {
+    "13": { id: 13, type: "Bytes", encrypted: false },
     "2273": { id: 2273, type: "Bytes", encrypted: false },
     "2269": { id: 2269, type: "String", encrypted: false },
   },
@@ -53,6 +54,8 @@ export const GROUP_KEY: TypeModel = {
   },
 };
 
+/** Group: attribute id for currentKeys (KeyPair, encrypted with group key). */
+export const GROUP_ATTR_CURRENT_KEYS = "13";
 /** Group: attribute id for formerGroupKeys ref; inner list id is 2269. */
 export const GROUP_ATTR_FORMER_GROUP_KEYS = "2273";
 export const GROUP_KEYS_REF_ATTR_LIST = "2269";
@@ -186,6 +189,28 @@ export const MAIL_ATTR_MAIL_DETAILS = "1308";
 export const MAIL_ATTR_MAIL_DETAILS_DRAFT = "1309";
 /** Mail: list of attachment refs (File [listId, elementId][]). */
 export const MAIL_ATTR_ATTACHMENTS = "115";
+/** Mail: bucket key aggregation (1310). Used for unprocessed mail when ownerEncSessionKey (102) is absent. */
+export const MAIL_ATTR_BUCKET_KEY = "1310";
+
+/** BucketKey (sys 2043) attribute ids. */
+export const BUCKET_KEY_ATTR_PUB_ENC = "2045";
+export const BUCKET_KEY_ATTR_GROUP_ENC = "2046";
+export const BUCKET_KEY_ATTR_KEY_GROUP = "2047";
+export const BUCKET_KEY_ATTR_BUCKET_ENC_SESSION_KEYS = "2048";
+/** BucketKey: protocol version for pubEncBucketKey (0 = RSA, 2 = TutaCrypt). */
+export const BUCKET_KEY_ATTR_PROTOCOL_VERSION = "2158";
+export const BUCKET_KEY_ATTR_RECIPIENT_KEY_VERSION = "2252";
+
+/** KeyPair (sys): PQ key attributes. Raw REST uses these numeric keys. */
+export const KEYPAIR_ATTR_PUB_ECC = "2144";
+export const KEYPAIR_ATTR_SYM_ENC_PRIV_ECC = "2145";
+export const KEYPAIR_ATTR_PUB_KYBER = "2146";
+export const KEYPAIR_ATTR_SYM_ENC_PRIV_KYBER = "2147";
+
+/** InstanceSessionKey (sys 2037) attribute ids. */
+export const INSTANCE_SESSION_KEY_ATTR_INSTANCE_LIST = "2040";
+export const INSTANCE_SESSION_KEY_ATTR_INSTANCE_ID = "2041";
+export const INSTANCE_SESSION_KEY_ATTR_SYM_ENC_SESSION_KEY = "2042";
 
 /** MailDetailsBlob: encrypted blob containing details (1305 = aggregation MailDetails with body). Load by mail.mailDetails id. */
 export const MAIL_DETAILS_BLOB: TypeModel = {

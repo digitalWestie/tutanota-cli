@@ -3,12 +3,12 @@ import { getApiBaseUrl } from "../../config.js";
 import { getErrorMessage, isVerbose, log, setVerbose } from "../../logger.js";
 import { clearSession } from "../../session.js";
 import {
-  resolveSessionKey,
   decryptParsedInstance,
   type ServerInstance,
 } from "../../crypto/decryptInstance.js";
+import { resolveMailSessionKeyWithFormerRetry } from "../../crypto/resolveMailSessionKey.js";
 import { MAIL } from "../../crypto/typeModels.js";
-import { loadEntity } from "../../rest.js";
+import { loadEntity, loadRange } from "../../rest.js";
 import { unwrapSingleElementArray } from "../../utils/bytes.js";
 import * as context from "../context.js";
 import { exitCodeForError } from "../exitCodes.js";
@@ -70,7 +70,7 @@ export async function runMessageRead(
 
   try {
     const baseUrl = getApiBaseUrl();
-    const { result, keyChain } = await context.getSessionUserAndMailbox({ baseUrl, verbose });
+    const { result, keyChain, userGroupId, mailGroupId, mailMembership } = await context.getSessionUserAndMailbox({ baseUrl, verbose });
 
     const results: MessageReadResult[] = [];
 
@@ -89,9 +89,25 @@ export async function runMessageRead(
       if (isVerbose()) {
         const has1308 = safeMail["1308"] != null;
         const has1309 = safeMail["1309"] != null;
-        log(`Mail raw: mailDetails (1308) present=${has1308}, mailDetailsDraft (1309) present=${has1309}`);
+        const has1310 = safeMail["1310"] != null;
+        const processNeeded = safeMail["1769"];
+        const has102 = safeMail["102"] != null && safeMail["102"] !== "";
+        const ownerKeyVer = safeMail["1395"];
+        log(`Mail raw: mailDetails (1308) present=${has1308}, mailDetailsDraft (1309) present=${has1309}, bucketKey (1310) present=${has1310}, processNeeded (1769)=${processNeeded}, ownerEncSessionKey (102) present=${has102}, ownerKeyVersion (1395)=${ownerKeyVer}`);
       }
-      const mailSk = resolveSessionKey(keyChain, safeMail, MAIL);
+      const mailSk = await resolveMailSessionKeyWithFormerRetry(
+        baseUrl,
+        result.accessToken,
+        keyChain,
+        loadEntity,
+        loadRange,
+        mailGroupId,
+        mailMembership.groupKeyVersion,
+        safeMail,
+        listId,
+        elementId,
+        userGroupId
+      );
       const decryptedMail = decryptParsedInstance(MAIL, safeMail, mailSk ?? null) as ServerInstance;
       if (isVerbose()) {
         const decHas1308 = decryptedMail["1308"] != null;
@@ -102,7 +118,15 @@ export async function runMessageRead(
         baseUrl,
         accessToken: result.accessToken,
         decryptedMail,
+        rawMail: safeMail,
         keyChain,
+        mailGroupId,
+        mailMembership,
+        userGroupId,
+        listId,
+        elementId,
+        loadEntity,
+        loadRange,
       });
 
       const from = getSenderFromMail(decryptedMail);
@@ -219,7 +243,7 @@ export function registerMessageCommands(
         if (verbose) setVerbose(true);
         try {
           const baseUrl = getApiBaseUrl();
-          const { result, keyChain } = await context.getSessionUserAndMailbox({ baseUrl, verbose });
+          const { result, keyChain, userGroupId, mailGroupId, mailMembership } = await context.getSessionUserAndMailbox({ baseUrl, verbose });
 
           const { path: writtenPath } = await exportOneMessageToPath({
             mailId,
@@ -228,6 +252,9 @@ export function registerMessageCommands(
               baseUrl,
               accessToken: result.accessToken,
               keyChain,
+              mailGroupId,
+              mailMembership,
+              userGroupId,
             },
             includeAttachments: opts.includeAttachments,
             verbose,

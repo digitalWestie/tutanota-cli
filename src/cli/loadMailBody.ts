@@ -7,7 +7,8 @@ import { aesDecrypt } from "@tutao/tutanota-crypto";
 import { base64ToUint8Array, utf8Uint8ArrayToString } from "@tutao/tutanota-utils";
 import type { AesKey } from "../auth/kdf.js";
 import type { KeyChain } from "../crypto/keyChain.js";
-import { resolveSessionKey, type ServerInstance } from "../crypto/decryptInstance.js";
+import { resolveMailSessionKeyWithFormerRetry } from "../crypto/resolveMailSessionKey.js";
+import type { ServerInstance } from "../crypto/decryptInstance.js";
 import {
   MAIL,
   MAIL_DETAILS_BLOB_ATTR_DETAILS,
@@ -69,12 +70,30 @@ export async function loadMailBody(options: {
   baseUrl: string;
   accessToken: string;
   decryptedMail: ServerInstance;
+  /** Raw (encrypted) mail for session key resolution; ownerEncSessionKey is lost after decrypt. */
+  rawMail: ServerInstance;
   keyChain: KeyChain;
+  mailGroupId: string;
+  mailMembership: { groupKeyVersion: string };
+  /** User group id for pubEncBucketKey (asymmetric) path when mail is for internal recipient. */
+  userGroupId?: string;
+  loadEntity: typeof import("../rest.js").loadEntity;
+  loadRange: typeof import("../rest.js").loadRange;
+  /** Mail listId and elementId for bucket key session key lookup (unprocessed mail). */
+  listId?: string;
+  elementId?: string;
 }): Promise<MailDetailsResult> {
-  const { baseUrl, accessToken, decryptedMail, keyChain } = options;
+  const { baseUrl, accessToken, decryptedMail, rawMail, keyChain, mailGroupId, mailMembership, userGroupId, loadEntity, loadRange, listId: mailListId, elementId: mailElementId } = options;
 
-  const mailDetailsDraft = decryptedMail[MAIL_ATTR_MAIL_DETAILS_DRAFT];
-  if (mailDetailsDraft != null && mailDetailsDraft !== "" && (Array.isArray(mailDetailsDraft) ? mailDetailsDraft.length > 0 : true)) {
+  // Check both raw and decrypted: mailDetailsDraft (1309) present means draft; main client refuses to load MailDetailsBlob for drafts
+  const mailDetailsDraft = rawMail[MAIL_ATTR_MAIL_DETAILS_DRAFT] ?? decryptedMail[MAIL_ATTR_MAIL_DETAILS_DRAFT];
+  const isDraftRef = (v: unknown): boolean => {
+    if (v == null) return false;
+    if (Array.isArray(v) && v.length >= 2) return true;
+    if (typeof v === "string" && v.includes("/")) return true;
+    return false;
+  };
+  if (isDraftRef(mailDetailsDraft)) {
     throw new Error("Draft messages are not supported for read. Use a non-draft mail id from 'envelope list'.");
   }
 
@@ -87,12 +106,12 @@ export async function loadMailBody(options: {
     throw new Error("No mail body available for this message (mailDetails missing).");
   }
 
-  const [listId, elementId] = mailDetailsRef;
-  const { blobAccessToken, serverUrl } = await requestBlobReadTokenArchive(baseUrl, listId, accessToken);
+  const [detailsListId, detailsElementId] = mailDetailsRef;
+  const { blobAccessToken, serverUrl } = await requestBlobReadTokenArchive(baseUrl, detailsListId, accessToken);
   const blobResponse = await loadMailDetailsBlobFromBlobServer(
     serverUrl,
-    listId,
-    elementId,
+    detailsListId,
+    detailsElementId,
     blobAccessToken,
     accessToken
   );
@@ -101,7 +120,19 @@ export async function loadMailBody(options: {
     throw new Error("MailDetailsBlob response empty or invalid.");
   }
 
-  const sessionKey = resolveSessionKey(keyChain, decryptedMail, MAIL);
+  const sessionKey = await resolveMailSessionKeyWithFormerRetry(
+    baseUrl,
+    accessToken,
+    keyChain,
+    loadEntity,
+    loadRange,
+    mailGroupId,
+    mailMembership.groupKeyVersion,
+    rawMail,
+    mailListId,
+    mailElementId,
+    userGroupId
+  );
   if (sessionKey == null) {
     throw new Error("Could not resolve session key to decrypt mail body.");
   }

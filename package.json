@@ -7,8 +7,9 @@
   "bin": {
     "tutanota-cli": "./dist/cli.js"
   },
+  "files": ["dist", "lib"],
   "scripts": {
-    "build": "tsc",
+    "build": "tsc && cp -r lib dist/",
     "start": "node dist/cli.js",
     "auth:check": "node dist/cli.js auth check",
     "test": "npm run build && node --test 'dist/**/*.test.js'"
