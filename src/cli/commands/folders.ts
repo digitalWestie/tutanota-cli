@@ -46,14 +46,14 @@ export function registerFoldersCommands(
 ): void {
   const foldersCmd = program
     .command("folders")
-    .description("Mail folder commands")
-    .option("--format, -f <format>", "Output format: pretty, tsv, or json", "pretty");
+    .description("Mail folder commands");
 
   foldersCmd
     .command("list")
     .description("List mail folders (requires password when using stored session)")
     .option("--verbose, -v", "Verbose logging")
-    .action(async function (this: Command, opts: { verbose?: boolean; V?: boolean }) {
+    .action(async function (this: Command, opts: { verbose?: boolean; V?: boolean; f?: string }) {
+      console.log("folders list opts:", opts);
       const verbose = opts.V ?? false;
       if (verbose) setVerbose(true);
       const merged = optsHelpers.getOptsWithGlobalsLeafWins(this);

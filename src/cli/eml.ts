@@ -98,6 +98,7 @@ export function sanitizeEmlFilename(date: string | null, subject: string): strin
   }
   const slug = subject
     .replace(/[\0/\\:*?"<>|\r\n\t]/g, "_")
+    .replace(/\s+/g, "_")
     .trim()
     .slice(0, EML_FILENAME_SUBJECT_MAX);
   const subjectPart = slug.length > 0 ? slug : "no-subject";

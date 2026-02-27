@@ -440,8 +440,7 @@ export function registerEnvelopeCommands(
   const envelopeCmd = program
     .command("envelope")
     .alias("messages")
-    .description("Envelope (message header) commands")
-    .option("--format, -f <format>", "Output format: pretty, tsv, or json", "pretty");
+    .description("Envelope (message header) commands");
 
   envelopeCmd
     .command("list [folder]")

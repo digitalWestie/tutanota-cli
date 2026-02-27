@@ -5,3 +5,4 @@ dist/
 .DS_Store
 resources/
 devnotes.md
+inbox-export/

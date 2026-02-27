@@ -20,8 +20,7 @@ export function registerAccountCommands(
   const accountCmd = program
     .command("account")
     .alias("auth")
-    .description("Account and session commands")
-    .option("--format, -f <format>", "Output format: pretty, tsv, or json", "pretty");
+    .description("Account and session commands");
 
   accountCmd
     .command("check")

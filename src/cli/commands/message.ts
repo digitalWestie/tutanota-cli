@@ -207,8 +207,7 @@ export function registerMessageCommands(
   const messageCmd = program
     .command("message")
     .alias("msg")
-    .description("Full message commands (read, export). Aligned with Himalaya-style message subcommands.")
-    .option("--format, -f <format>", "Output format: pretty, tsv, or json", "pretty");
+    .description("Full message commands (read, export). Aligned with Himalaya-style message subcommands.");
 
   messageCmd
     .command("read <mail-id> [other-ids...]")

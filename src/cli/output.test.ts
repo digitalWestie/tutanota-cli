@@ -32,14 +32,20 @@ describe("output", () => {
       assert.equal(getOutputOption({ f: "tsv" }), "tsv");
     });
 
-    test("prefers format over f", () => {
-      assert.equal(getOutputOption({ format: "json", f: "tsv" }), "json");
-      assert.equal(getOutputOption({ f: "tsv" }), "tsv");
+    test("returns F (Commander capitalised short option) when format and f missing", () => {
+      assert.equal(getOutputOption({ F: "tsv" }), "tsv");
+      assert.equal(getOutputOption({ F: "json" }), "json");
+    });
+
+    test("prefers format over f and F", () => {
+      assert.equal(getOutputOption({ format: "json", f: "tsv", F: "pretty" }), "json");
+      assert.equal(getOutputOption({ f: "tsv", F: "pretty" }), "tsv");
+      assert.equal(getOutputOption({ F: "tsv" }), "tsv");
     });
 
     test("returns default pretty when opts empty or all missing", () => {
       assert.equal(getOutputOption({}), "pretty");
-      assert.equal(getOutputOption({ format: undefined, f: undefined }), "pretty");
+      assert.equal(getOutputOption({ format: undefined, f: undefined, F: undefined }), "pretty");
     });
   });
 

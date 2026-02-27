@@ -47,11 +47,18 @@ describe("buildEml", () => {
 });
 
 describe("sanitizeEmlFilename", () => {
-  test("produces date and subject slug with .eml extension", () => {
+  test("produces date and subject slug with .eml extension (no spaces)", () => {
     const name = sanitizeEmlFilename("2026-02-27T14:30:00.000Z", "Test subject");
     assert.ok(name.endsWith(".eml"));
     assert.ok(name.startsWith("2026-02-27-"));
-    assert.ok(name.includes("Test subject") || name.includes("Test-subject"));
+    assert.ok(name.includes("Test_subject"));
+    assert.ok(!name.includes(" "));
+  });
+
+  test("replaces spaces with underscores (no spaces in filename)", () => {
+    const name = sanitizeEmlFilename("2026-02-27T12:00:00.000Z", "Hello  world   subject");
+    assert.ok(!name.includes(" "));
+    assert.ok(name.includes("Hello_world_subject"));
   });
 
   test("replaces unsafe filesystem chars in subject", () => {

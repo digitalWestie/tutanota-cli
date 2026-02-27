@@ -4,7 +4,7 @@
 
 import kleur from "kleur";
 
-export type OutputOpts = { format?: string; f?: string };
+export type OutputOpts = { format?: string; f?: string; F?: string };
 
 /** Convert camelCase to Title Case for TSV/table headers (e.g. receivedDate -> Received Date). */
 export function camelToTitleCase(camel: string): string {
@@ -14,8 +14,9 @@ export function camelToTitleCase(camel: string): string {
     .trim();
 }
 
+/** Commander may store -f/--format under attribute "F" (capitalised short name). */
 export function getOutputOption(opts: OutputOpts): string {
-  return opts.format ?? opts.f ?? "pretty";
+  return opts.format ?? opts.f ?? opts.F ?? "pretty";
 }
 
 export function getOutputFormat(opts: OutputOpts): boolean {
