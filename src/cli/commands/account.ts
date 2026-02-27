@@ -10,24 +10,34 @@ import { getErrorMessage, setVerbose } from "../../logger.js";
 import { clearSession, getSessionPath } from "../../session.js";
 import * as context from "../context.js";
 import { exitCodeForError } from "../exitCodes.js";
+import * as optsHelpers from "../opts.js";
 import * as output from "../output.js";
 
 export function registerAccountCommands(
   program: Command,
   getOpts: () => Record<string, unknown>
 ): void {
-  const accountCmd = program.command("account").alias("auth").description("Account and session commands");
+  const accountCmd = program
+    .command("account")
+    .alias("auth")
+    .description("Account and session commands")
+    .option("--format, -f <format>", "Output format: pretty, tsv, or json", "pretty");
 
   accountCmd
     .command("check")
     .description("Verify credentials by logging in; prints session info on success")
     .option("--verbose, -v", "Verbose logging for debugging")
-    .action(async (opts: { verbose?: boolean; V?: boolean }) => {
+    .action(async function (this: Command, opts: { verbose?: boolean; V?: boolean }) {
       const verbose = opts.V ?? false;
-      const useJson = output.getOutputFormat(getOpts());
+      const merged = optsHelpers.getOptsWithGlobalsLeafWins(this);
+      const getOptsWithGlobals = () => merged;
+      const useJson = output.getOutputFormat(getOptsWithGlobals());
       if (verbose) {
         setVerbose(true);
+        output.logVerboseArgv();
+        output.logVerboseOptions(merged);
         console.error("[verbose] Verbose logging enabled.");
+        console.error("[verbose] output format:", output.getOutputOption(merged));
       }
       try {
         const baseUrl = getApiBaseUrl();
@@ -55,7 +65,7 @@ export function registerAccountCommands(
             ["Status", "User Id", "Session Id", "Stored", "Storage Path"],
             [status, String(result.userId), sessionIdStr, String(usedStoredSession), storagePath],
           ];
-          output.printTable(rows, output.getPlainFormat(getOpts()));
+          output.printTable(rows, output.getPlainFormat(getOptsWithGlobals()));
         }
       } catch (err) {
         const message = getErrorMessage(err);
@@ -64,7 +74,7 @@ export function registerAccountCommands(
           if (err instanceof Error && err.cause) console.error("[verbose] cause:", err.cause);
           if (err instanceof Error && err.stack) console.error("[verbose] stack:", err.stack);
         }
-        if (output.getOutputFormat(getOpts())) {
+        if (output.getOutputFormat(getOptsWithGlobals())) {
           console.log(JSON.stringify({ ok: false, error: message }));
         } else {
           console.error("Error:", message);
@@ -85,12 +95,17 @@ export function registerAccountCommands(
     .command("profile")
     .description("Log in and show your user profile (account type, enabled, etc.)")
     .option("--verbose, -v", "Verbose logging for debugging")
-    .action(async (opts: { verbose?: boolean; V?: boolean }) => {
+    .action(async function (this: Command, opts: { verbose?: boolean; V?: boolean }) {
       const verbose = opts.V ?? false;
-      const useJson = output.getOutputFormat(getOpts());
+      const merged = optsHelpers.getOptsWithGlobalsLeafWins(this);
+      const getOptsWithGlobals = () => merged;
+      const useJson = output.getOutputFormat(getOptsWithGlobals());
       if (verbose) {
         setVerbose(true);
+        output.logVerboseArgv();
+        output.logVerboseOptions(merged);
         console.error("[verbose] Verbose logging enabled.");
+        console.error("[verbose] output format:", output.getOutputOption(merged));
       }
       try {
         const baseUrl = getApiBaseUrl();
@@ -136,7 +151,7 @@ export function registerAccountCommands(
         if (useJson) {
           console.log(JSON.stringify(fullProfile));
         } else {
-          const plainFormat = output.getPlainFormat(getOpts());
+          const plainFormat = output.getPlainFormat(getOptsWithGlobals());
           const userRows: string[][] = [];
           if (user.accountType != null) userRows.push(["accountType", String(user.accountType)]);
           if (user.enabled != null) userRows.push(["enabled", String(user.enabled)]);

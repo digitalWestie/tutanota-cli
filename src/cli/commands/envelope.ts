@@ -1,4 +1,5 @@
 import type { Command } from "commander";
+import type { KeyChain } from "../../crypto/keyChain.js";
 import kleur from "kleur";
 import { getApiBaseUrl } from "../../config.js";
 import { loadUser } from "../../auth/login.js";
@@ -14,9 +15,98 @@ import { loadEntity, loadRange, GENERATED_MAX_ID } from "../../rest.js";
 import { unwrapSingleElementArray } from "../../utils/bytes.js";
 import * as context from "../context.js";
 import { exitCodeForError } from "../exitCodes.js";
+import * as optsHelpers from "../opts.js";
 import * as output from "../output.js";
 import * as mailbox from "../mailbox.js";
 import { getFolderDisplayName } from "./folders.js";
+
+/** Folder entry from decrypted MailSet list. Shared by envelope list and folder export. */
+export interface FolderEntry {
+  id: string;
+  entriesListId: string | null;
+  folderType: string;
+  name: string;
+}
+
+const FOLDER_LIST_CONCURRENCY = 5;
+
+/**
+ * Load and decrypt folder entries (MailSets) into FolderEntry list. Shared by envelope list and folder export.
+ */
+export async function loadFolderEntries(options: {
+  keyChain: KeyChain;
+  mailGroupId: string;
+  mailSetRawList: ServerInstance[];
+}): Promise<FolderEntry[]> {
+  const { keyChain, mailGroupId, mailSetRawList } = options;
+  const availableVersions = keyChain.getAvailableKeyVersions(mailGroupId);
+  return context.mapWithConcurrency(
+    mailSetRawList,
+    FOLDER_LIST_CONCURRENCY,
+    async (raw) => {
+      const safe =
+        "__proto__" in raw
+          ? (Object.fromEntries(Object.entries(raw).filter(([k]) => k !== "__proto__")) as ServerInstance)
+          : raw;
+      const instanceVersion = String((safe["1399"] ?? "") as string);
+      const versionsToTry =
+        availableVersions.length <= 1
+          ? [instanceVersion]
+          : [instanceVersion, ...availableVersions.filter((v) => v !== instanceVersion)];
+      let dec: ServerInstance | null = null;
+      for (const tryVer of versionsToTry) {
+        const sk = resolveSessionKey(keyChain, safe, MAIL_SET, undefined, undefined, tryVer);
+        if (sk == null) continue;
+        const failedValueIds = new Set<string>();
+        const onFail = (valueId: string) => failedValueIds.add(valueId);
+        dec = decryptParsedInstance(MAIL_SET, safe, sk, onFail);
+        if (!failedValueIds.has("435") && !failedValueIds.has("1479")) break;
+      }
+      if (dec == null) {
+        dec = decryptParsedInstance(MAIL_SET, safe, null, undefined, undefined);
+      }
+      const idRaw = safe["431"];
+      const id = Array.isArray(idRaw)
+        ? String(idRaw[idRaw.length - 1] ?? "")
+        : String(idRaw ?? "");
+      const entriesRaw = (dec as ServerInstance)["1459"];
+      const entriesListId =
+        entriesRaw != null
+          ? Array.isArray(entriesRaw) && entriesRaw.length === 1
+            ? String(entriesRaw[0])
+            : Array.isArray(entriesRaw) && entriesRaw.length >= 2
+              ? String(entriesRaw[0])
+              : String(entriesRaw)
+          : null;
+      const folderType = String((dec as ServerInstance)["436"] ?? "");
+      const name = getFolderDisplayName(dec as ServerInstance);
+      return { id, entriesListId, folderType, name };
+    }
+  );
+}
+
+/**
+ * Resolve a folder by id or name. Returns the folder, or an error for not-found / multiple name matches.
+ * Empty string means Inbox (folderType "1").
+ */
+export function resolveFolderByIdOrName(
+  folderEntries: FolderEntry[],
+  folderIdOrName: string | undefined
+): { folder: FolderEntry } | { error: "not_found" } | { error: "multiple_match" } {
+  const trimmed = (folderIdOrName ?? "").trim();
+  if (trimmed === "") {
+    const inbox = folderEntries.find((f) => String(f.folderType) === "1");
+    return inbox != null && inbox.entriesListId != null ? { folder: inbox } : { error: "not_found" };
+  }
+  const byId = folderEntries.find((f) => f.id === trimmed);
+  if (byId != null) return { folder: byId };
+  const byName = folderEntries.filter(
+    (f) => f.name.trim().toLowerCase() === trimmed.toLowerCase()
+  );
+  if (byName.length === 1) return { folder: byName[0] };
+  if (byName.length > 1) return { error: "multiple_match" };
+  return { error: "not_found" };
+}
 
 /** Max width for Subject column in envelope list (pretty table). Used for both data truncation and table colMaxWidths. */
 const ENVELOPE_LIST_SUBJECT_MAX_WIDTH = 100;
@@ -66,6 +156,7 @@ export async function runEnvelopeList(
 
   if (verbose) {
     console.error("[verbose] Running with options:", JSON.stringify(options));
+    console.error("[verbose] output format:", output.getOutputOption(getOpts()));
     console.error("[verbose] count=", count, "onlyUnread=", onlyUnread);
   }
 
@@ -98,68 +189,14 @@ export async function runEnvelopeList(
       verbose,
     });
 
-    const availableVersions = keyChain.getAvailableKeyVersions(mailGroupId);
-    const MAILS_LIST_CONCURRENCY = 5;
-    const folderEntries = await context.mapWithConcurrency(
-      mailSetRawList,
-      MAILS_LIST_CONCURRENCY,
-      async (raw) => {
-        const safe =
-          "__proto__" in raw
-            ? (Object.fromEntries(Object.entries(raw).filter(([k]) => k !== "__proto__")) as ServerInstance)
-            : raw;
-        const instanceVersion = String((safe["1399"] ?? "") as string);
-        const versionsToTry =
-          availableVersions.length <= 1 ? [instanceVersion] : [instanceVersion, ...availableVersions.filter((v) => v !== instanceVersion)];
-        let dec: ServerInstance | null = null;
-        for (const tryVer of versionsToTry) {
-          const sk = resolveSessionKey(keyChain, safe, MAIL_SET, undefined, undefined, tryVer);
-          if (sk == null) continue;
-          const failedValueIds = new Set<string>();
-          const onFail = (valueId: string) => failedValueIds.add(valueId);
-          dec = decryptParsedInstance(MAIL_SET, safe, sk, onFail);
-          if (!failedValueIds.has("435") && !failedValueIds.has("1479")) break;
-        }
-        if (dec == null) {
-          dec = decryptParsedInstance(MAIL_SET, safe, null, undefined, undefined);
-        }
-        const idRaw = safe["431"];
-        const id = Array.isArray(idRaw)
-          ? String(idRaw[idRaw.length - 1] ?? "")
-          : String(idRaw ?? "");
-        const entriesRaw = (dec as ServerInstance)["1459"];
-        const entriesListId =
-          entriesRaw != null
-            ? Array.isArray(entriesRaw) && entriesRaw.length === 1
-              ? String(entriesRaw[0])
-              : Array.isArray(entriesRaw) && entriesRaw.length >= 2
-                ? String(entriesRaw[0])
-                : String(entriesRaw)
-            : null;
-        const folderType = (dec as ServerInstance)["436"];
-        const name = getFolderDisplayName(dec as ServerInstance);
-        return { id, entriesListId, folderType, name };
-      }
-    );
+    const folderEntries = await loadFolderEntries({ keyChain, mailGroupId, mailSetRawList });
 
-    let folder: (typeof folderEntries)[number] | undefined;
-    if (folderIdTrimmed === "") {
-      folder = folderEntries.find((f) => String(f.folderType) === "1");
-    } else {
-      folder = folderEntries.find((f) => f.id === folderIdTrimmed);
-      if (folder == null) {
-        const byName = folderEntries.filter(
-          (f) => f.name.trim().toLowerCase() === folderIdTrimmed.trim().toLowerCase()
-        );
-        if (byName.length === 1) {
-          folder = byName[0];
-        } else if (byName.length > 1) {
-          console.error("Error: Multiple folders match that name; use a folder id (run 'folders list').");
-          process.exit(1);
-        }
+    const resolved = resolveFolderByIdOrName(folderEntries, folderIdTrimmed);
+    if ("error" in resolved) {
+      if (resolved.error === "multiple_match") {
+        console.error("Error: Multiple folders match that name; use a folder id (run 'folders list').");
+        process.exit(1);
       }
-    }
-    if (folder == null || folder.entriesListId == null) {
       if (folderIdTrimmed === "") {
         console.error("Error: Inbox folder not found.");
       } else {
@@ -167,12 +204,18 @@ export async function runEnvelopeList(
       }
       process.exit(1);
     }
+    const folder = resolved.folder;
+    const entriesListId = folder.entriesListId;
+    if (entriesListId == null) {
+      console.error("Error: Folder has no entries list.");
+      process.exit(1);
+    }
 
     const startId = options.cursor != null && options.cursor.trim() !== "" ? options.cursor.trim() : GENERATED_MAX_ID;
     const mailSetEntryList = await loadRange<Record<string, unknown>>(
       baseUrl,
       MAIL_SET_ENTRY,
-      folder.entriesListId,
+      entriesListId,
       {
         accessToken: result.accessToken,
         start: startId,
@@ -394,7 +437,11 @@ export function registerEnvelopeCommands(
   program: Command,
   getOpts: () => Record<string, unknown>
 ): void {
-  const envelopeCmd = program.command("envelope").alias("messages").description("Envelope (message header) commands");
+  const envelopeCmd = program
+    .command("envelope")
+    .alias("messages")
+    .description("Envelope (message header) commands")
+    .option("--format, -f <format>", "Output format: pretty, tsv, or json", "pretty");
 
   envelopeCmd
     .command("list [folder]")
@@ -404,19 +451,27 @@ export function registerEnvelopeCommands(
     .option("--unread, -u", "Show only unread")
     .option("--cursor <id>", "Cursor for next page (use nextCursor from previous JSON or hint)")
     .action(
-      async (
+      async function (
+        this: Command,
         folderId: string | undefined,
         opts: { verbose?: boolean; V?: boolean; C?: number; count?: number; unread?: boolean; U?: boolean; cursor?: string }
-      ) => {
+      ) {
+        const merged = optsHelpers.getOptsWithGlobalsLeafWins(this);
+        const getOptsWithGlobals = () => merged;
+        if (opts.verbose ?? opts.V) {
+          output.logVerboseArgv();
+          output.logVerboseOptions(merged);
+          console.error("[verbose] output format:", output.getOutputOption(merged));
+        }
         await runEnvelopeList(
           folderId,
           {
-            ...program.opts(),
+            ...merged,
             ...opts,
             count: opts.C != null ? Math.max(1, Math.min(100, opts.C)) : opts.count ?? 10,
             cursor: opts.cursor,
           },
-          getOpts
+          getOptsWithGlobals
         );
       }
     );

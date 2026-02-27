@@ -31,6 +31,16 @@ export function getPlainFormat(opts: OutputOpts): "pretty" | "tsv" {
   return format === "tsv" ? "tsv" : "pretty";
 }
 
+/** Log raw argv to stderr (for --verbose). */
+export function logVerboseArgv(): void {
+  console.error("[verbose] argv:", JSON.stringify(process.argv));
+}
+
+/** Log merged/parsed options to stderr (for --verbose). */
+export function logVerboseOptions(opts: Record<string, unknown>): void {
+  console.error("[verbose] options:", JSON.stringify(opts, null, 2));
+}
+
 const MAX_COL_WIDTH = 80;
 
 export interface PrintTableOptions {

@@ -13,10 +13,12 @@ import { loadEntity } from "../../rest.js";
 import { unwrapSingleElementArray } from "../../utils/bytes.js";
 import * as context from "../context.js";
 import { exitCodeForError } from "../exitCodes.js";
+import * as optsHelpers from "../opts.js";
 import * as output from "../output.js";
 import * as mailbox from "../mailbox.js";
 import { loadMailBody } from "../loadMailBody.js";
 import { runAttachmentDownload } from "../loadAttachments.js";
+import { exportOneMessageToPath } from "../exportMessage.js";
 import { htmlToPlainText } from "../../utils/htmlToPlainText.js";
 
 /** Parse mail-id string into [listId, elementId]. Use ids from 'envelope list --format json'. */
@@ -205,7 +207,8 @@ export function registerMessageCommands(
   const messageCmd = program
     .command("message")
     .alias("msg")
-    .description("Full message commands (read, export). Aligned with Himalaya-style message subcommands.");
+    .description("Full message commands (read, export). Aligned with Himalaya-style message subcommands.")
+    .option("--format, -f <format>", "Output format: pretty, tsv, or json", "pretty");
 
   messageCmd
     .command("read <mail-id> [other-ids...]")
@@ -214,17 +217,93 @@ export function registerMessageCommands(
     )
     .option("--verbose, -v", "Verbose logging")
     .action(
-      async (
+      async function (
+        this: Command,
         mailId: string,
         otherIds: string[],
         opts: { verbose?: boolean; V?: boolean }
-      ) => {
+      ) {
+        const merged = optsHelpers.getOptsWithGlobalsLeafWins(this);
+        const getOptsWithGlobals = () => merged;
         const ids = [mailId, ...(otherIds ?? [])].filter(Boolean);
+        if (opts.verbose ?? opts.V) {
+          output.logVerboseArgv();
+          output.logVerboseOptions(merged);
+          console.error("[verbose] output format:", output.getOutputOption(merged));
+        }
         await runMessageRead(
           ids,
-          { ...program.opts(), ...opts },
-          getOpts
+          { ...merged, ...opts },
+          getOptsWithGlobals
         );
+      }
+    );
+
+  messageCmd
+    .command("export <mail-id>")
+    .description("Export one message to an EML file. Mail-id from 'envelope list --format json'.")
+    .option("--output <path>", "Output file path (default: current directory with date-subject.eml)")
+    .option("--include-attachments", "Save attachments in a sibling directory next to the EML file")
+    .option("--verbose, -v", "Verbose logging")
+    .action(
+      async (
+        mailId: string,
+        opts: { output?: string; includeAttachments?: boolean; verbose?: boolean; V?: boolean }
+      ) => {
+        const verbose = opts.verbose ?? opts.V ?? false;
+        if (verbose) setVerbose(true);
+        try {
+          const baseUrl = getApiBaseUrl();
+          let { result } = await context.getOrCreateSession(baseUrl, verbose);
+          let userPassphraseKey = await context.getPassphraseKeyForDecryption(baseUrl, result, verbose);
+
+          let userRaw: Record<string, unknown>;
+          try {
+            userRaw = (await loadUser(baseUrl, result.accessToken, result.userId)) as Record<string, unknown>;
+          } catch (loadErr) {
+            if (context.isSessionExpiredOrInvalid(loadErr) && readSession() != null) {
+              if (verbose) console.error("[verbose] loadUser returned 401/440; clearing session and retrying.");
+              clearSession();
+              const retry = await context.getOrCreateSession(baseUrl, verbose);
+              result = retry.result;
+              userPassphraseKey = await context.getPassphraseKeyForDecryption(baseUrl, retry.result, verbose);
+              userRaw = (await loadUser(baseUrl, result.accessToken, result.userId)) as Record<string, unknown>;
+            } else {
+              throw loadErr;
+            }
+          }
+
+          const { keyChain } = await mailbox.loadMailboxAndMailSetList({
+            baseUrl,
+            result,
+            userPassphraseKey,
+            userRaw,
+            verbose,
+          });
+
+          const { path: writtenPath } = await exportOneMessageToPath({
+            mailId,
+            outputPath: opts.output,
+            context: {
+              baseUrl,
+              accessToken: result.accessToken,
+              keyChain,
+            },
+            includeAttachments: opts.includeAttachments,
+            verbose,
+          });
+          console.log("Exported to", writtenPath);
+        } catch (err) {
+          const message = getErrorMessage(err);
+          if (context.isSessionExpiredOrInvalid(err)) {
+            clearSession();
+            console.error("Session expired or invalid. Run 'account check' to log in again.");
+          } else {
+            if (verbose && err instanceof Error && err.stack) console.error("[verbose] stack:", err.stack);
+            console.error("Error:", message);
+          }
+          process.exit(exitCodeForError(err));
+        }
       }
     );
 
@@ -235,14 +314,22 @@ export function registerMessageCommands(
     .option("--index <n>", "Download only the nth attachment (1-based)", (v) => parseInt(v, 10))
     .option("--verbose, -v", "Verbose logging")
     .action(
-      async (
+      async function (
+        this: Command,
         mailId: string,
         opts: { output?: string; index?: number; verbose?: boolean; V?: boolean }
-      ) => {
+      ) {
         const verbose = opts.verbose ?? opts.V ?? false;
         if (verbose) setVerbose(true);
-        const useJson = output.getOutputFormat(getOpts());
-        const plainFormat = output.getPlainFormat(getOpts());
+        const merged = optsHelpers.getOptsWithGlobalsLeafWins(this);
+        const getOptsWithGlobals = () => merged;
+        if (verbose) {
+          output.logVerboseArgv();
+          output.logVerboseOptions(merged);
+          console.error("[verbose] output format:", output.getOutputOption(merged));
+        }
+        const useJson = output.getOutputFormat(getOptsWithGlobals());
+        const plainFormat = output.getPlainFormat(getOptsWithGlobals());
 
         try {
           const baseUrl = getApiBaseUrl();

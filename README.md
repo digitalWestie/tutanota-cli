@@ -4,7 +4,7 @@
 
 **This tool is in early stages of development — use at your own risk; behaviour and APIs may change.**
 
-A CLI to authenticate with [Tutanota](https://tuta.com), list mail folders, list envelopes (message headers) in a folder, read full messages, and (in future) export mail. The command layout follows [Himalaya](https://github.com/pimalaya/himalaya)-style structure: **envelope** for listing headers, **message** for reading (and later exporting) full messages.
+A CLI to authenticate with [Tutanota](https://tuta.com), list mail folders, list envelopes (message headers) in a folder, read full messages, and export mail to EML files.
 
 This CLI was developed based on the official client repository [tutao/tutanota](https://github.com/tutao/tutanota) at version 327.260210.0, commit 6b43e845bc18b17dc3b047d186a8490129887911.
 
@@ -44,7 +44,7 @@ You can copy `.env.example` to `.env` and fill in your values.
 After a successful login, the CLI stores a session in a file so that later commands can reuse it without asking for your password again.
 
 - **Location:** `$XDG_CONFIG_HOME/tutanota-cli/session.json`, or `~/.config/tutanota-cli/session.json` if `XDG_CONFIG_HOME` is not set.
-- **Usage:** `account check`, `account profile`, `account logout`, `folders list`, `envelope list`, `message read`, and `message attachment` use the stored session when it is present and still valid. The same commands are also available under the `auth` alias (e.g. `auth check`, `auth profile`, `auth logout`). Commands that decrypt data (e.g. `folders list`, `message read`) will prompt for your password when using a stored session, since the passphrase key is not persisted. Running the CLI with **no subcommand** lists the default folder (Inbox), same as `envelope list`.
+- **Usage:** `account check`, `account profile`, `account logout`, `folders list`, `folders export`, `envelope list`, `message read`, `message export`, and `message attachment` use the stored session when it is present and still valid. The same commands are also available under the `auth` alias (e.g. `auth check`, `auth profile`, `auth logout`). Commands that decrypt data (e.g. `folders list`, `message read`) will prompt for your password when using a stored session, since the passphrase key is not persisted. Running the CLI with **no subcommand** lists the default folder (Inbox), same as `envelope list`.
 - **Recovery:** If session verification fails (e.g. network error or session expired), the CLI clears the stored session and prompts you to log in again. You may see a brief message such as "Network error while checking session; logging in again." or "Session invalid or expired; logging in again."
 - **Log out:** Run `account logout` (or `auth logout`) to clear the stored session, or delete the session file manually.
 - **Opt-out:** Set `TUTANOTA_NO_SESSION_PERSISTENCE=1` in the environment to disable saving and using a session file.
@@ -167,11 +167,49 @@ Options:
 - `--verbose`, `-v` – Verbose logging.
 - Use global `--format json` for JSON (array of `{ name, path, size }` for each saved file).
 
+### `message export <mail-id>`
+
+Exports one message to an EML file. The **mail-id** is the same format as for `message read` (from `envelope list --format json`). By default the file is written in the current directory with a name derived from the message date and subject. Use `--output` to specify an exact path. Optionally save attachments in a sibling directory next to the EML file with `--include-attachments`.
+
+**Note:** Exported mail is stored in plain text (headers + body). Ensure your device and storage are secured and that you keep exported files in a safe place.
+
+```bash
+npm start -- message export "LISTID/ELEMENTID"
+npm start -- message export "LISTID/ELEMENTID" --output ./mail.eml
+npm start -- message export "LISTID/ELEMENTID" --include-attachments
+```
+
+Options:
+
+- `--output <path>` – Output file path (default: current directory with date-subject.eml).
+- `--include-attachments` – Save attachments in a sibling directory next to the EML file.
+- `--verbose`, `-v` – Verbose logging.
+
+### `folders export <folder>`
+
+Exports all messages in a folder to EML files in the given directory. Use a folder id or folder name from `folders list` (e.g. `Inbox`, `Sent`, or a folder id). Each message is written as a separate EML file named from its date and subject. Use `--resume` to skip messages that already have an EML file (useful to continue an interrupted export).
+
+**Note:** Exported mail is stored in plain text. Secure your device and the output directory.
+
+```bash
+npm start -- folders export Inbox --path ./inbox-export
+npm start -- folders export Sent --path ./sent --resume --include-attachments
+```
+
+Options:
+
+- `--path <dir>` – **Required.** Output directory for EML files.
+- `--format <format>` – Export format (default: `eml`).
+- `--resume` – Skip messages that already have an EML file in the output directory.
+- `--concurrency <n>` – Max concurrent message exports per page (default: 5).
+- `--include-attachments` – Save attachments in a sibling directory next to each EML file.
+- `--verbose`, `-v` – Verbose logging.
+
 ## Limitations
 
 - **2FA**: Accounts with two-factor authentication enabled are not supported yet. Commands will fail with a clear message. Use the official Tutanota client or disable 2FA for the account.
-- **Export**: Mail export (e.g. to .eml or mbox) is not implemented. The CLI supports authentication, profile, listing folders, listing envelopes, and reading full messages.
-- **Drafts**: `message read` does not support draft messages; use a mail id from a non-draft folder (e.g. Inbox, Sent).
+- **Export**: Export produces EML files (plain text headers + body). Attachments can be saved alongside with `--include-attachments` (in a separate directory per message). mbox and JSON export formats are not implemented. Export strips encryption; store exported files securely.
+- **Drafts**: `message read` and `message export` do not support draft messages; use a mail id from a non-draft folder (e.g. Inbox, Sent).
 
 ## License
 

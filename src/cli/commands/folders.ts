@@ -1,14 +1,21 @@
+import * as fs from "fs";
+import * as path from "path";
 import type { Command } from "commander";
 import { getApiBaseUrl } from "../../config.js";
 import { loadUser } from "../../auth/login.js";
 import { getErrorMessage, setVerbose } from "../../logger.js";
 import { clearSession, readSession } from "../../session.js";
 import { resolveSessionKey, decryptParsedInstance, type ServerInstance } from "../../crypto/decryptInstance.js";
-import { MAIL_SET } from "../../crypto/typeModels.js";
+import { MAIL_SET, MAIL_SET_ENTRY } from "../../crypto/typeModels.js";
+import { loadRange, GENERATED_MAX_ID } from "../../rest.js";
+import { unwrapSingleElementArray } from "../../utils/bytes.js";
 import * as context from "../context.js";
 import { exitCodeForError } from "../exitCodes.js";
+import * as optsHelpers from "../opts.js";
 import * as output from "../output.js";
 import * as mailbox from "../mailbox.js";
+import { loadFolderEntries, resolveFolderByIdOrName } from "./envelope.js";
+import { exportOneMessageToPath } from "../exportMessage.js";
 
 const SYSTEM_FOLDER_DISPLAY_NAMES: Record<string, string> = {
   "1": "Inbox",
@@ -37,15 +44,25 @@ export function registerFoldersCommands(
   program: Command,
   getOpts: () => Record<string, unknown>
 ): void {
-  const foldersCmd = program.command("folders").description("Mail folder commands");
+  const foldersCmd = program
+    .command("folders")
+    .description("Mail folder commands")
+    .option("--format, -f <format>", "Output format: pretty, tsv, or json", "pretty");
 
   foldersCmd
     .command("list")
     .description("List mail folders (requires password when using stored session)")
     .option("--verbose, -v", "Verbose logging")
-    .action(async (opts: { verbose?: boolean; V?: boolean }) => {
+    .action(async function (this: Command, opts: { verbose?: boolean; V?: boolean }) {
       const verbose = opts.V ?? false;
       if (verbose) setVerbose(true);
+      const merged = optsHelpers.getOptsWithGlobalsLeafWins(this);
+      const getOptsWithGlobals = () => merged;
+      if (verbose) {
+        output.logVerboseArgv();
+        output.logVerboseOptions(merged);
+        console.error("[verbose] output format:", output.getOutputOption(merged));
+      }
       try {
         const baseUrl = getApiBaseUrl();
         let { result } = await context.getOrCreateSession(baseUrl, verbose);
@@ -152,14 +169,14 @@ export function registerFoldersCommands(
           }
         );
 
-        if (output.getOutputFormat(getOpts())) {
+        if (output.getOutputFormat(getOptsWithGlobals())) {
           console.log(JSON.stringify({ folders }));
         } else {
           const rows = [
             ["Name", "Id", "Folder Type"],
             ...folders.map((f) => [f.name, f.id, String(f.folderType)]),
           ];
-          output.printTable(rows, output.getPlainFormat(getOpts()));
+          output.printTable(rows, output.getPlainFormat(getOptsWithGlobals()));
         }
       } catch (err) {
         const message = getErrorMessage(err);
@@ -175,4 +192,164 @@ export function registerFoldersCommands(
         process.exit(exitCodeForError(err));
       }
     });
+
+  foldersCmd
+    .command("export <folder>")
+    .description("Export all messages in a folder to EML files in the given directory.")
+    .requiredOption("--path <dir>", "Output directory for EML files")
+    .option("--format <format>", "Export format (default: eml)", "eml")
+    .option("--resume", "Skip messages that already have an EML file")
+    .option("--concurrency <n>", "Max concurrent message exports per page", (v) => parseInt(v, 10), 5)
+    .option("--include-attachments", "Save attachments in a sibling directory next to each EML file")
+    .option("--verbose, -v", "Verbose logging")
+    .action(
+      async (
+        folderArg: string,
+        opts: {
+          path: string;
+          format?: string;
+          resume?: boolean;
+          concurrency?: number;
+          includeAttachments?: boolean;
+          verbose?: boolean;
+          V?: boolean;
+        }
+      ) => {
+        const verbose = opts.verbose ?? opts.V ?? false;
+        if (verbose) setVerbose(true);
+        const outDir = opts.path;
+        const concurrency = Math.max(1, Math.min(20, opts.concurrency ?? 5));
+
+        try {
+          const baseUrl = getApiBaseUrl();
+          let { result } = await context.getOrCreateSession(baseUrl, verbose);
+          let userPassphraseKey = await context.getPassphraseKeyForDecryption(baseUrl, result, verbose);
+
+          let userRaw: Record<string, unknown>;
+          try {
+            userRaw = (await loadUser(baseUrl, result.accessToken, result.userId)) as Record<string, unknown>;
+          } catch (loadErr) {
+            if (context.isSessionExpiredOrInvalid(loadErr) && readSession() != null) {
+              if (verbose) console.error("[verbose] loadUser returned 401/440; clearing session and retrying.");
+              clearSession();
+              const retry = await context.getOrCreateSession(baseUrl, verbose);
+              result = retry.result;
+              userPassphraseKey = await context.getPassphraseKeyForDecryption(baseUrl, retry.result, verbose);
+              userRaw = (await loadUser(baseUrl, result.accessToken, result.userId)) as Record<string, unknown>;
+            } else {
+              throw loadErr;
+            }
+          }
+
+          const { keyChain, mailGroupId, mailSetRawList } = await mailbox.loadMailboxAndMailSetList({
+            baseUrl,
+            result,
+            userPassphraseKey,
+            userRaw,
+            verbose,
+          });
+
+          const folderEntries = await loadFolderEntries({ keyChain, mailGroupId, mailSetRawList });
+          const resolved = resolveFolderByIdOrName(folderEntries, folderArg?.trim());
+
+          if ("error" in resolved) {
+            if (resolved.error === "multiple_match") {
+              console.error("Error: Multiple folders match that name; use a folder id (run 'folders list').");
+              process.exit(1);
+            }
+            if ((folderArg ?? "").trim() === "") {
+              console.error("Error: Inbox folder not found.");
+            } else {
+              console.error("Error: Folder not found:", folderArg, "(run 'folders list' to see folder ids and names)");
+            }
+            process.exit(1);
+          }
+          const folder = resolved.folder;
+          const entriesListId = folder.entriesListId;
+          if (entriesListId == null) {
+            console.error("Error: Folder has no entries list.");
+            process.exit(1);
+          }
+
+          fs.mkdirSync(outDir, { recursive: true });
+
+          const ctx = {
+            baseUrl,
+            accessToken: result.accessToken,
+            keyChain,
+          };
+
+          let cursor: string | undefined = undefined;
+          let totalExported = 0;
+          const PAGE_SIZE = 100;
+
+          function mailIdFromEntry(entry: Record<string, unknown>): string {
+            const mailRefRaw = entry["1456"];
+            const mailRef = unwrapSingleElementArray(mailRefRaw);
+            if (Array.isArray(mailRef) && mailRef.length >= 2) {
+              return String(mailRef[0]) + "/" + String(mailRef[1]);
+            }
+            if (Array.isArray(mailRef) && mailRef.length === 1) {
+              return String(mailRef[0]) + "/";
+            }
+            return String(mailRef ?? "");
+          }
+
+          function nextCursorFromPage(entries: Record<string, unknown>[]): string | undefined {
+            if (entries.length < PAGE_SIZE || entries.length === 0) return undefined;
+            const last = entries[entries.length - 1];
+            const elementIdFrom = (idRaw: unknown): string | undefined => {
+              if (idRaw == null) return undefined;
+              if (Array.isArray(idRaw) && idRaw.length >= 2) return String(idRaw[idRaw.length - 1] ?? "");
+              if (Array.isArray(idRaw) && idRaw.length === 1) return String(idRaw[0] ?? "");
+              const s = String(idRaw);
+              return s === "" ? undefined : s;
+            };
+            return elementIdFrom(last["1452"]) ?? elementIdFrom(last["431"]) ?? elementIdFrom(last["_id"]);
+          }
+
+          while (true) {
+            const startId = cursor != null && cursor !== "" ? cursor : GENERATED_MAX_ID;
+            const mailSetEntryList = await loadRange<Record<string, unknown>>(
+              baseUrl,
+              MAIL_SET_ENTRY,
+              entriesListId,
+              {
+                accessToken: result.accessToken,
+                start: startId,
+                count: PAGE_SIZE,
+                reverse: true,
+              }
+            );
+
+            const mailIds = mailSetEntryList.map((e) => mailIdFromEntry(e));
+            await context.mapWithConcurrency(mailIds, concurrency, async (mailId) => {
+              await exportOneMessageToPath({
+                mailId,
+                outputDir: outDir,
+                context: ctx,
+                includeAttachments: opts.includeAttachments,
+                skipIfExists: opts.resume,
+                verbose,
+              });
+            });
+            totalExported += mailIds.length;
+            cursor = nextCursorFromPage(mailSetEntryList);
+            if (cursor == null) break;
+          }
+
+          console.error("Exported", totalExported, "messages to", outDir);
+        } catch (err) {
+          const message = getErrorMessage(err);
+          if (context.isSessionExpiredOrInvalid(err)) {
+            clearSession();
+            console.error("Session expired or invalid. Run 'account check' to log in again.");
+          } else {
+            if (verbose && err instanceof Error && err.stack) console.error("[verbose] stack:", err.stack);
+            console.error("Error:", message);
+          }
+          process.exit(exitCodeForError(err));
+        }
+      }
+    );
 }
