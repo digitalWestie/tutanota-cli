@@ -1,8 +1,7 @@
 import type { Command } from "commander";
 import { getApiBaseUrl } from "../../config.js";
-import { loadUser } from "../../auth/login.js";
 import { getErrorMessage, isVerbose, log, setVerbose } from "../../logger.js";
-import { clearSession, readSession } from "../../session.js";
+import { clearSession } from "../../session.js";
 import {
   resolveSessionKey,
   decryptParsedInstance,
@@ -15,21 +14,13 @@ import * as context from "../context.js";
 import { exitCodeForError } from "../exitCodes.js";
 import * as optsHelpers from "../opts.js";
 import * as output from "../output.js";
-import * as mailbox from "../mailbox.js";
 import { loadMailBody } from "../loadMailBody.js";
 import { runAttachmentDownload } from "../loadAttachments.js";
 import { exportOneMessageToPath } from "../exportMessage.js";
 import { htmlToPlainText } from "../../utils/htmlToPlainText.js";
+import { parseMailId } from "../mailId.js";
 
-/** Parse mail-id string into [listId, elementId]. Use ids from 'envelope list --format json'. */
-export function parseMailId(mailId: string): [string, string] {
-  const trimmed = mailId.trim();
-  if (trimmed.includes("/")) {
-    const parts = trimmed.split("/");
-    if (parts.length >= 2 && parts[0] && parts[1]) return [parts[0].trim(), parts[1].trim()];
-  }
-  throw new Error(`Invalid mail-id: "${mailId}". Use format listId/elementId (e.g. from 'envelope list --format json').`);
-}
+export { parseMailId };
 
 function getSenderFromMail(decryptedMail: ServerInstance): string {
   const senderAgg = decryptedMail["111"];
@@ -79,32 +70,7 @@ export async function runMessageRead(
 
   try {
     const baseUrl = getApiBaseUrl();
-    let { result } = await context.getOrCreateSession(baseUrl, verbose);
-    let userPassphraseKey = await context.getPassphraseKeyForDecryption(baseUrl, result, verbose);
-
-    let userRaw: Record<string, unknown>;
-    try {
-      userRaw = (await loadUser(baseUrl, result.accessToken, result.userId)) as Record<string, unknown>;
-    } catch (loadErr) {
-      if (context.isSessionExpiredOrInvalid(loadErr) && readSession() != null) {
-        if (verbose) console.error("[verbose] loadUser returned 401/440; clearing session and retrying.");
-        clearSession();
-        const retry = await context.getOrCreateSession(baseUrl, verbose);
-        result = retry.result;
-        userPassphraseKey = await context.getPassphraseKeyForDecryption(baseUrl, result, verbose);
-        userRaw = (await loadUser(baseUrl, result.accessToken, result.userId)) as Record<string, unknown>;
-      } else {
-        throw loadErr;
-      }
-    }
-
-    const { keyChain } = await mailbox.loadMailboxAndMailSetList({
-      baseUrl,
-      result,
-      userPassphraseKey,
-      userRaw,
-      verbose,
-    });
+    const { result, keyChain } = await context.getSessionUserAndMailbox({ baseUrl, verbose });
 
     const results: MessageReadResult[] = [];
 
@@ -253,32 +219,7 @@ export function registerMessageCommands(
         if (verbose) setVerbose(true);
         try {
           const baseUrl = getApiBaseUrl();
-          let { result } = await context.getOrCreateSession(baseUrl, verbose);
-          let userPassphraseKey = await context.getPassphraseKeyForDecryption(baseUrl, result, verbose);
-
-          let userRaw: Record<string, unknown>;
-          try {
-            userRaw = (await loadUser(baseUrl, result.accessToken, result.userId)) as Record<string, unknown>;
-          } catch (loadErr) {
-            if (context.isSessionExpiredOrInvalid(loadErr) && readSession() != null) {
-              if (verbose) console.error("[verbose] loadUser returned 401/440; clearing session and retrying.");
-              clearSession();
-              const retry = await context.getOrCreateSession(baseUrl, verbose);
-              result = retry.result;
-              userPassphraseKey = await context.getPassphraseKeyForDecryption(baseUrl, retry.result, verbose);
-              userRaw = (await loadUser(baseUrl, result.accessToken, result.userId)) as Record<string, unknown>;
-            } else {
-              throw loadErr;
-            }
-          }
-
-          const { keyChain } = await mailbox.loadMailboxAndMailSetList({
-            baseUrl,
-            result,
-            userPassphraseKey,
-            userRaw,
-            verbose,
-          });
+          const { result, keyChain } = await context.getSessionUserAndMailbox({ baseUrl, verbose });
 
           const { path: writtenPath } = await exportOneMessageToPath({
             mailId,
@@ -332,32 +273,7 @@ export function registerMessageCommands(
 
         try {
           const baseUrl = getApiBaseUrl();
-          let { result } = await context.getOrCreateSession(baseUrl, verbose);
-          let userPassphraseKey = await context.getPassphraseKeyForDecryption(baseUrl, result, verbose);
-
-          let userRaw: Record<string, unknown>;
-          try {
-            userRaw = (await loadUser(baseUrl, result.accessToken, result.userId)) as Record<string, unknown>;
-          } catch (loadErr) {
-            if (context.isSessionExpiredOrInvalid(loadErr) && readSession() != null) {
-              if (verbose) console.error("[verbose] loadUser returned 401/440; clearing session and retrying.");
-              clearSession();
-              const retry = await context.getOrCreateSession(baseUrl, verbose);
-              result = retry.result;
-              userPassphraseKey = await context.getPassphraseKeyForDecryption(baseUrl, result, verbose);
-              userRaw = (await loadUser(baseUrl, result.accessToken, result.userId)) as Record<string, unknown>;
-            } else {
-              throw loadErr;
-            }
-          }
-
-          const { keyChain } = await mailbox.loadMailboxAndMailSetList({
-            baseUrl,
-            result,
-            userPassphraseKey,
-            userRaw,
-            verbose,
-          });
+          const { result, keyChain } = await context.getSessionUserAndMailbox({ baseUrl, verbose });
 
           const saved = await runAttachmentDownload(
             mailId,

@@ -5,7 +5,6 @@
 import * as fs from "fs";
 import * as path from "path";
 import { aesDecrypt } from "@tutao/tutanota-crypto";
-import type { AesKey } from "../auth/kdf.js";
 import type { KeyChain } from "../crypto/keyChain.js";
 import {
   resolveSessionKey,
@@ -26,6 +25,7 @@ import {
 import { loadEntity, loadMultiple } from "../rest.js";
 import { requestBlobReadTokenArchive } from "../blobToken.js";
 import { loadBlobsFromStorageBlobServer } from "../storageBlob.js";
+import { parseMailId } from "./mailId.js";
 
 export interface AttachmentDownloadOptions {
   outputDir: string;
@@ -88,16 +88,6 @@ function getBlobBytes(
   return blobMap.get(blobId) ?? undefined;
 }
 
-/** Parse mail-id string into [listId, elementId]. Same format as 'envelope list --format json'. */
-function parseMailIdForAttachment(mailId: string): [string, string] {
-  const trimmed = mailId.trim();
-  if (trimmed.includes("/")) {
-    const parts = trimmed.split("/");
-    if (parts.length >= 2 && parts[0] && parts[1]) return [parts[0].trim(), parts[1].trim()];
-  }
-  throw new Error(`Invalid mail-id: "${mailId}". Use format listId/elementId (e.g. from 'envelope list --format json').`);
-}
-
 /**
  * Download attachments for the given mail-id. Returns list of saved files; empty if no attachments.
  * Throws on auth/network errors.
@@ -112,7 +102,7 @@ export async function runAttachmentDownload(
   }
 ): Promise<AttachmentDownloadResult[]> {
   const { outputDir, index: indexOpt, verbose } = options;
-  const [listId, elementId] = parseMailIdForAttachment(mailId);
+  const [listId, elementId] = parseMailId(mailId);
 
   const mailRaw = await loadEntity<ServerInstance>(context.baseUrl, MAIL, [listId, elementId], {
     accessToken: context.accessToken,

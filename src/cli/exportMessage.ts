@@ -16,15 +16,7 @@ import { unwrapSingleElementArray } from "../utils/bytes.js";
 import { loadMailBody } from "./loadMailBody.js";
 import { runAttachmentDownload } from "./loadAttachments.js";
 import { buildEml, sanitizeEmlFilename } from "./eml.js";
-
-function parseMailId(mailId: string): [string, string] {
-  const trimmed = mailId.trim();
-  if (trimmed.includes("/")) {
-    const parts = trimmed.split("/");
-    if (parts.length >= 2 && parts[0] && parts[1]) return [parts[0].trim(), parts[1].trim()];
-  }
-  throw new Error(`Invalid mail-id: "${mailId}". Use format listId/elementId (e.g. from 'envelope list --format json').`);
-}
+import { parseMailId } from "./mailId.js";
 
 function getSenderFromMail(decryptedMail: ServerInstance): string {
   const senderAgg = decryptedMail["111"];

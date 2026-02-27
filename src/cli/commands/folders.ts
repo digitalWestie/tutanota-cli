@@ -2,9 +2,8 @@ import * as fs from "fs";
 import * as path from "path";
 import type { Command } from "commander";
 import { getApiBaseUrl } from "../../config.js";
-import { loadUser } from "../../auth/login.js";
 import { getErrorMessage, setVerbose } from "../../logger.js";
-import { clearSession, readSession } from "../../session.js";
+import { clearSession } from "../../session.js";
 import { resolveSessionKey, decryptParsedInstance, type ServerInstance } from "../../crypto/decryptInstance.js";
 import { MAIL_SET, MAIL_SET_ENTRY } from "../../crypto/typeModels.js";
 import { loadRange, GENERATED_MAX_ID } from "../../rest.js";
@@ -13,7 +12,6 @@ import * as context from "../context.js";
 import { exitCodeForError } from "../exitCodes.js";
 import * as optsHelpers from "../opts.js";
 import * as output from "../output.js";
-import * as mailbox from "../mailbox.js";
 import { loadFolderEntries, resolveFolderByIdOrName } from "./envelope.js";
 import { exportOneMessageToPath } from "../exportMessage.js";
 
@@ -53,7 +51,6 @@ export function registerFoldersCommands(
     .description("List mail folders (requires password when using stored session)")
     .option("--verbose, -v", "Verbose logging")
     .action(async function (this: Command, opts: { verbose?: boolean; V?: boolean; f?: string }) {
-      console.log("folders list opts:", opts);
       const verbose = opts.V ?? false;
       if (verbose) setVerbose(true);
       const merged = optsHelpers.getOptsWithGlobalsLeafWins(this);
@@ -65,30 +62,8 @@ export function registerFoldersCommands(
       }
       try {
         const baseUrl = getApiBaseUrl();
-        let { result } = await context.getOrCreateSession(baseUrl, verbose);
-        let userPassphraseKey = await context.getPassphraseKeyForDecryption(baseUrl, result, verbose);
-
-        let userRaw: Record<string, unknown>;
-        try {
-          userRaw = (await loadUser(baseUrl, result.accessToken, result.userId)) as Record<string, unknown>;
-        } catch (loadErr) {
-          const loadMsg = loadErr instanceof Error ? loadErr.message : String(loadErr);
-          if ((loadMsg.includes("401") || loadMsg.includes("Unauthorized")) && readSession() != null) {
-            if (verbose) console.error("[verbose] loadUser returned 401; clearing session and retrying with fresh login.");
-            clearSession();
-            const retry = await context.getOrCreateSession(baseUrl, verbose);
-            result = retry.result;
-            userPassphraseKey = await context.getPassphraseKeyForDecryption(baseUrl, result, verbose);
-            userRaw = (await loadUser(baseUrl, result.accessToken, result.userId)) as Record<string, unknown>;
-          } else {
-            throw loadErr;
-          }
-        }
-        const { keyChain, mailGroupId, mailSetRawList } = await mailbox.loadMailboxAndMailSetList({
+        const { keyChain, mailGroupId, mailSetRawList } = await context.getSessionUserAndMailbox({
           baseUrl,
-          result,
-          userPassphraseKey,
-          userRaw,
           verbose,
         });
 
@@ -222,30 +197,8 @@ export function registerFoldersCommands(
 
         try {
           const baseUrl = getApiBaseUrl();
-          let { result } = await context.getOrCreateSession(baseUrl, verbose);
-          let userPassphraseKey = await context.getPassphraseKeyForDecryption(baseUrl, result, verbose);
-
-          let userRaw: Record<string, unknown>;
-          try {
-            userRaw = (await loadUser(baseUrl, result.accessToken, result.userId)) as Record<string, unknown>;
-          } catch (loadErr) {
-            if (context.isSessionExpiredOrInvalid(loadErr) && readSession() != null) {
-              if (verbose) console.error("[verbose] loadUser returned 401/440; clearing session and retrying.");
-              clearSession();
-              const retry = await context.getOrCreateSession(baseUrl, verbose);
-              result = retry.result;
-              userPassphraseKey = await context.getPassphraseKeyForDecryption(baseUrl, retry.result, verbose);
-              userRaw = (await loadUser(baseUrl, result.accessToken, result.userId)) as Record<string, unknown>;
-            } else {
-              throw loadErr;
-            }
-          }
-
-          const { keyChain, mailGroupId, mailSetRawList } = await mailbox.loadMailboxAndMailSetList({
+          const { result, keyChain, mailGroupId, mailSetRawList } = await context.getSessionUserAndMailbox({
             baseUrl,
-            result,
-            userPassphraseKey,
-            userRaw,
             verbose,
           });
 

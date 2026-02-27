@@ -2,9 +2,8 @@ import type { Command } from "commander";
 import type { KeyChain } from "../../crypto/keyChain.js";
 import kleur from "kleur";
 import { getApiBaseUrl } from "../../config.js";
-import { loadUser } from "../../auth/login.js";
 import { getErrorMessage, setVerbose } from "../../logger.js";
-import { clearSession, readSession } from "../../session.js";
+import { clearSession } from "../../session.js";
 import {
   resolveSessionKey,
   decryptParsedInstance,
@@ -163,29 +162,8 @@ export async function runEnvelopeList(
   const folderIdTrimmed = typeof folderId === "string" ? folderId.trim() : "";
   try {
     const baseUrl = getApiBaseUrl();
-    let { result } = await context.getOrCreateSession(baseUrl, verbose);
-    let userPassphraseKey = await context.getPassphraseKeyForDecryption(baseUrl, result, verbose);
-
-    let userRaw: Record<string, unknown>;
-    try {
-      userRaw = (await loadUser(baseUrl, result.accessToken, result.userId)) as Record<string, unknown>;
-    } catch (loadErr) {
-      if (context.isSessionExpiredOrInvalid(loadErr) && readSession() != null) {
-        if (verbose) console.error("[verbose] loadUser returned 401/440; clearing session and retrying with fresh login.");
-        clearSession();
-        const retry = await context.getOrCreateSession(baseUrl, verbose);
-        result = retry.result;
-        userPassphraseKey = await context.getPassphraseKeyForDecryption(baseUrl, result, verbose);
-        userRaw = (await loadUser(baseUrl, result.accessToken, result.userId)) as Record<string, unknown>;
-      } else {
-        throw loadErr;
-      }
-    }
-    const { keyChain, mailGroupId, mailSetRawList } = await mailbox.loadMailboxAndMailSetList({
+    const { result, keyChain, mailGroupId, mailSetRawList } = await context.getSessionUserAndMailbox({
       baseUrl,
-      result,
-      userPassphraseKey,
-      userRaw,
       verbose,
     });
 

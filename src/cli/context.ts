@@ -14,6 +14,8 @@ import type { LoginResult } from "../auth/login.js";
 import { getErrorMessage } from "../logger.js";
 import { clearSession, readSession, writeSession } from "../session.js";
 import type { AesKey } from "../auth/kdf.js";
+import type { LoadMailboxResult } from "./mailbox.js";
+import { loadMailboxAndMailSetList } from "./mailbox.js";
 
 /** True if the error indicates an expired, invalid, or timed-out session (e.g. HTTP 401 or 440). */
 export function isSessionExpiredOrInvalid(err: unknown): boolean {
@@ -114,4 +116,42 @@ export async function getPassphraseKeyForDecryption(
   if (verbose) console.error("[verbose] No passphrase key in session; prompting for credentials to decrypt.");
   const { email, password } = await getCredentials();
   return getPassphraseKeyForSession(baseUrl, email, password);
+}
+
+/**
+ * Get a valid session, user, and mailbox (key chain + mail set list). Handles 401/440 retry:
+ * if loadUser fails with session-expired and a stored session exists, clears session and retries
+ * with fresh login. Use this for commands that need to decrypt mail or list folders.
+ */
+export async function getSessionUserAndMailbox(options: {
+  baseUrl: string;
+  verbose: boolean;
+}): Promise<LoadMailboxResult> {
+  const { baseUrl, verbose } = options;
+  let { result } = await getOrCreateSession(baseUrl, verbose);
+  let userPassphraseKey = await getPassphraseKeyForDecryption(baseUrl, result, verbose);
+
+  let userRaw: Record<string, unknown>;
+  try {
+    userRaw = (await loadUser(baseUrl, result.accessToken, result.userId)) as Record<string, unknown>;
+  } catch (loadErr) {
+    if (isSessionExpiredOrInvalid(loadErr) && readSession() != null) {
+      if (verbose) console.error("[verbose] loadUser returned 401/440; clearing session and retrying with fresh login.");
+      clearSession();
+      const retry = await getOrCreateSession(baseUrl, verbose);
+      result = retry.result;
+      userPassphraseKey = await getPassphraseKeyForDecryption(baseUrl, result, verbose);
+      userRaw = (await loadUser(baseUrl, result.accessToken, result.userId)) as Record<string, unknown>;
+    } else {
+      throw loadErr;
+    }
+  }
+
+  return loadMailboxAndMailSetList({
+    baseUrl,
+    result,
+    userPassphraseKey,
+    userRaw,
+    verbose,
+  });
 }
