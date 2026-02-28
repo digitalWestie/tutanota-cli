@@ -1,13 +1,5 @@
 # Unofficial Tutanota CLI
 
-
-
-ℹ️**Important Notice / Disclosure**
-
-- This tool is not affiliated or endorsed by Tuta GmbH in any way
-  This tool is in early stages of development - use at your own risk; behaviour and APIs may change
-- This tool has been developed with LLM assistance
-
 ## About
 
 A CLI to authenticate with [Tutanota](https://tuta.com), list mail folders, list envelopes (message headers) in a folder, read full messages, and export mail to EML files.
@@ -16,17 +8,46 @@ This CLI was developed based on the official client repository [tutao/tutanota](
 
 This is a stateless CLI rather than a TUI client. There is no event loop so it's not interactive, but hey, that means you can use it in scripts.
 
+
+ℹ️**Important Notice / Disclosure**
+
+- This tool is not affiliated or endorsed by Tuta GmbH in any way
+  This tool is in early stages of development - use at your own risk; behaviour and APIs may change
+- This tool has been developed with LLM assistance
+
+
 ## Requirements
 
 - Node.js 18+
 - A Tutanota (Tuta) account
 
-## Setup
+
+## Install
+
+**Primary (recommended):** install from npm globally, then run `tutanota-cli`:
 
 ```bash
+npm install -g tutanota-cli
+tutanota-cli account check
+```
+
+For a one-off run without installing globally, use [npx](https://docs.npmjs.com/cli/v10/commands/npx):
+
+```bash
+npx tutanota-cli account check
+```
+
+**From source:** clone the repo and build locally (e.g. for development or to run a specific branch):
+
+```bash
+git clone <repo-url>
+cd tutanota-cli
 npm install
 npm run build
+node dist/cli.js account check
+# or: npm start -- account check
 ```
+
 
 ## Credentials
 
@@ -37,6 +58,7 @@ TUTANOTA_EMAIL=you@tuta.com
 TUTANOTA_PASSWORD=yourpassword
 ```
 
+
 Optional:
 
 - `TUTANOTA_API_URL` - API base URL, from env or `.env` (default: `https://app.tuta.com`)
@@ -44,6 +66,7 @@ Optional:
 If `TUTANOTA_EMAIL` or `TUTANOTA_PASSWORD` is not set, the CLI will prompt you for it when you run an account command (e.g. `account check`). The password prompt is hidden (no echo). Do not pass passwords via command-line flags. Credentials are only used when logging in (for example when there is no valid stored session or when session persistence is disabled).
 
 You can copy `.env.example` to `.env` and fill in your values.
+
 
 ## Session persistence
 
@@ -55,21 +78,25 @@ After a successful login, the CLI stores a session in a file so that later comma
 - **Log out:** Run `account logout` (or `auth logout`) to clear the stored session, or delete the session file manually.
 - **Opt-out:** Set `TUTANOTA_NO_SESSION_PERSISTENCE=1` in the environment to disable saving and using a session file.
 
+
 ## Global options
 
 - `--format`, `-f`    
   
 Output format: `pretty`, `tsv`, or `json` (default: `pretty`). **pretty** shows aligned columns for easier reading in the terminal; **tsv** is tab-separated for spreadsheet paste and scripting. Use `--format tsv` when piping or copying into a spreadsheet; use `--format json` for machine-readable output.
 
+
 ### Colours and formatting
 
 In **pretty** output only, the CLI uses a bold table header and a line under the header. Colours are not used for `tsv` or `json`. Output respects your environment: colour is disabled when stdout is not a TTY (e.g. when piping), and when `NO_COLOR` is set. Set `FORCE_COLOR=1` to enable colour when piping. There is no CLI flag for colour; behaviour is driven by these environment variables and TTY detection.
+
 
 ## Default behavior
 
 Running the CLI with **no subcommand** (e.g. `node dist/cli.js` or `npm start`) lists the default folder (Inbox), same as `envelope list` with default options.
 
-## Commands
+
+## Commands and Usage
 
 ### `account check`
 
@@ -213,11 +240,13 @@ Options:
 - `--include-attachments` – Save attachments in a sibling directory next to each EML file.
 - `--verbose`, `-v` – Verbose logging.
 
+
 ## Limitations
 
 - **2FA**: Accounts with two-factor authentication enabled are not supported yet. Commands will fail with a clear message. Use the official Tutanota client or disable 2FA for the account.
 - **Export**: Export produces EML files (plain text headers + body). Attachments can be saved alongside with `--include-attachments` (in a separate directory per message). mbox and JSON export formats are not implemented. Export strips encryption; store exported files securely.
 - **Drafts**: `message read` and `message export` do not support draft messages; use a mail id from a non-draft folder (e.g. Inbox, Sent).
+
 
 ## License
 
