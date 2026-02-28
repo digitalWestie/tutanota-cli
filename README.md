@@ -1,10 +1,14 @@
 # Unofficial Tutanota CLI
 
-ℹ️ *This tool is not affiliated or endorsed by Tuta GmbH in any way.*
 
-**This tool is in early stages of development — use at your own risk; behaviour and APIs may change.**
 
-**Disclosure: This tool has been developed with LLM assistance.**
+ℹ️**Important Notice / Disclosure**
+
+- This tool is not affiliated or endorsed by Tuta GmbH in any way
+  This tool is in early stages of development - use at your own risk; behaviour and APIs may change
+- This tool has been developed with LLM assistance
+
+## About
 
 A CLI to authenticate with [Tutanota](https://tuta.com), list mail folders, list envelopes (message headers) in a folder, read full messages, and export mail to EML files.
 
@@ -35,7 +39,7 @@ TUTANOTA_PASSWORD=yourpassword
 
 Optional:
 
-- `TUTANOTA_API_URL` – API base URL, from env or `.env` (default: `https://app.tuta.com`)
+- `TUTANOTA_API_URL` - API base URL, from env or `.env` (default: `https://app.tuta.com`)
 
 If `TUTANOTA_EMAIL` or `TUTANOTA_PASSWORD` is not set, the CLI will prompt you for it when you run an account command (e.g. `account check`). The password prompt is hidden (no echo). Do not pass passwords via command-line flags. Credentials are only used when logging in (for example when there is no valid stored session or when session persistence is disabled).
 
@@ -53,7 +57,9 @@ After a successful login, the CLI stores a session in a file so that later comma
 
 ## Global options
 
-- `--format`, `-f` **&lt;format&gt;** – Output format: `pretty`, `tsv`, or `json` (default: `pretty`). **pretty** shows aligned columns for easier reading in the terminal; **tsv** is tab-separated for spreadsheet paste and scripting. Use `--format tsv` when piping or copying into a spreadsheet; use `--format json` for machine-readable output.
+- `--format`, `-f`    
+  
+Output format: `pretty`, `tsv`, or `json` (default: `pretty`). **pretty** shows aligned columns for easier reading in the terminal; **tsv** is tab-separated for spreadsheet paste and scripting. Use `--format tsv` when piping or copying into a spreadsheet; use `--format json` for machine-readable output.
 
 ### Colours and formatting
 
@@ -154,7 +160,7 @@ Options:
 
 ### `message attachment <mail-id>`
 
-Downloads attachments from a message. Use the same **mail-id** format as `message read` (from `envelope list --format json`). Saves files to the current directory by default; use `--output` to choose a folder. If a file with the same name already exists, a suffix ` (1)`, ` (2)`, etc. is added.
+Downloads attachments from a message. Use the same **mail-id** format as `message read` (from `envelope list --format json`). Saves files to the current directory by default; use `--output` to choose a folder. If a file with the same name already exists, a suffix  `(1)`,  `(2)`, etc. is added.
 
 ```bash
 npm start -- message attachment "LISTID/ELEMENTID"
