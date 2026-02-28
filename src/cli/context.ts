@@ -2,6 +2,7 @@
  * Shared CLI context: session handling and concurrency helper.
  */
 
+import kleur from "kleur";
 import { getCredentials } from "../config.js";
 import {
   getPassphraseKeyForSession,
@@ -73,11 +74,12 @@ export async function getOrCreateSession(
       const isNetworkError =
         (err instanceof Error && err.message === "fetch failed") ||
         (cause?.code && ["ETIMEDOUT", "ENETUNREACH", "ECONNRESET", "ECONNREFUSED"].includes(cause.code));
-      console.error(
-        isNetworkError
+      if (process.stdout.isTTY) {
+        const msg = isNetworkError
           ? "Network error while checking session; logging in again."
-          : "Session invalid or expired; logging in again."
-      );
+          : "Session invalid or expired; logging in again.";
+        console.error(kleur.dim(msg) + "\n");
+      }
       clearSession();
     }
   } else if (verbose) {

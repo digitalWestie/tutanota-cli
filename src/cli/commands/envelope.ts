@@ -10,12 +10,13 @@ import {
   type ServerInstance,
 } from "../../crypto/decryptInstance.js";
 import { resolveMailSessionKeyWithFormerRetry } from "../../crypto/resolveMailSessionKey.js";
-import { MAIL_SET, MAIL_SET_ENTRY, MAIL, MAIL_ADDRESS } from "../../crypto/typeModels.js";
-import { loadEntity, loadRange, GENERATED_MAX_ID } from "../../rest.js";
+import { MAIL_SET, MAIL_SET_ENTRY, MAIL, MAIL_ADDRESS, FILE, FILE_ATTR_NAME } from "../../crypto/typeModels.js";
+import { loadEntity, loadMultiple, loadRange, GENERATED_MAX_ID } from "../../rest.js";
 import { unwrapSingleElementArray } from "../../utils/bytes.js";
 import { elementIdFromEntry, mailIdFromMailSetEntry } from "../../utils/ids.js";
 import * as context from "../context.js";
 import { loadMailBody } from "../loadMailBody.js";
+import { parseAttachmentRefs } from "../loadAttachments.js";
 import * as optsHelpers from "../opts.js";
 import * as output from "../output.js";
 import { toDateStr, formatDateForPretty } from "../mailUtils.js";
@@ -136,6 +137,7 @@ export async function runEnvelopeList(
   const useJson = output.getOutputFormat(getOpts());
   const plainFormat = output.getPlainFormat(getOpts());
   const needRecipients = useJson || plainFormat === "tsv";
+  const needAttachmentNames = useJson || plainFormat === "tsv";
 
   if (verbose) {
     console.error("[verbose] Running with options:", JSON.stringify(options));
@@ -210,7 +212,8 @@ export async function runEnvelopeList(
         });
         const safeMail = sanitizeServerInstance(mailRaw as ServerInstance);
         const attachments115 = safeMail["115"];
-        const attachmentCount = Array.isArray(attachments115) ? attachments115.length : 0;
+        const attachmentRefs = parseAttachmentRefs(attachments115);
+        const attachmentCount = attachmentRefs.length;
         const listIdForMail = Array.isArray(mailId) ? String(mailId[0]) : undefined;
         const elementIdForMail = Array.isArray(mailId) ? String(mailId[1]) : undefined;
         const mailSk = await resolveMailSessionKeyWithFormerRetry(
@@ -308,6 +311,37 @@ export async function runEnvelopeList(
           }
         }
 
+        let attachmentNames = "";
+        if (needAttachmentNames && attachmentRefs.length > 0) {
+          const byListId = new Map<string, string[]>();
+          for (const [lid, eid] of attachmentRefs) {
+            const list = byListId.get(lid) ?? [];
+            list.push(eid);
+            byListId.set(lid, list);
+          }
+          const refOrder = attachmentRefs.map(([l, e]) => `${l}/${e}`);
+          const fileByRef = new Map<string, ServerInstance>();
+          for (const [lid, eids] of byListId) {
+            const files = await loadMultiple<ServerInstance>(baseUrl, FILE, lid, eids, {
+              accessToken: result.accessToken,
+            });
+            for (let j = 0; j < eids.length; j++) {
+              const ref = `${lid}/${eids[j]}`;
+              if (files[j] != null) fileByRef.set(ref, files[j]);
+            }
+          }
+          const names: string[] = [];
+          for (const ref of refOrder) {
+            const fileRaw = fileByRef.get(ref);
+            if (fileRaw == null) continue;
+            const fileSk = resolveSessionKey(keyChain, sanitizeServerInstance(fileRaw as ServerInstance), FILE);
+            const decryptedFile = decryptParsedInstance(FILE, sanitizeServerInstance(fileRaw as ServerInstance), fileSk ?? null) as ServerInstance;
+            const name = String(decryptedFile[FILE_ATTR_NAME] ?? "").trim();
+            names.push(name || "(no name)");
+          }
+          attachmentNames = names.join(", ");
+        }
+
         return {
           id: idForJson,
           subject: String(d["105"] ?? ""),
@@ -335,6 +369,7 @@ export async function runEnvelopeList(
           processNeeded: d["1769"] === true,
           sendAt: toDateStr(d["1784"]) ?? null,
           attachmentCount,
+          attachments: attachmentNames || null,
         };
       }
     );
@@ -361,6 +396,7 @@ export async function runEnvelopeList(
           "Bcc",
           "Unread",
           "Attachment Count",
+          "Attachments",
           "State",
           "State Label",
         ];
@@ -375,6 +411,7 @@ export async function runEnvelopeList(
           (m.bcc ?? "").replace(/\r\n|\r|\n/g, " ").trim(),
           String(m.unread),
           String(m.attachmentCount),
+          (m.attachments ?? "").replace(/\r\n|\r|\n/g, " ").trim(),
           String(m.state ?? ""),
           m.stateLabel,
         ]);
@@ -409,7 +446,7 @@ export async function runEnvelopeList(
         });
       }
 
-      if (plainFormat === "pretty" && nextCursor != null) {
+      if (plainFormat === "pretty" && nextCursor != null && process.stdout.isTTY) {
         const total = toShow.length;
         const unreadCount = toShow.filter((m) => m.unread).length;
         const listPart = folderIdTrimmed !== "" ? ` envelope list ${folderIdTrimmed}` : " envelope list";

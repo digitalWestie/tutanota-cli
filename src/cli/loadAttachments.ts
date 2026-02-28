@@ -42,7 +42,7 @@ export interface AttachmentDownloadResult {
 }
 
 /** Normalize Mail.attachments (115) to array of [listId, elementId]. */
-function parseAttachmentRefs(attachmentsRaw: unknown): [string, string][] {
+export function parseAttachmentRefs(attachmentsRaw: unknown): [string, string][] {
   if (attachmentsRaw == null) return [];
   const arr = Array.isArray(attachmentsRaw) ? attachmentsRaw : [attachmentsRaw];
   const refs: [string, string][] = [];
@@ -54,6 +54,45 @@ function parseAttachmentRefs(attachmentsRaw: unknown): [string, string][] {
     }
   }
   return refs;
+}
+
+/**
+ * Load attachment File entities for a mail and return decrypted filenames joined by ", ".
+ * safeMail must be the sanitized Mail instance (attribute 115 = attachment refs).
+ */
+export async function getAttachmentNamesForMail(
+  safeMail: ServerInstance,
+  ctx: { baseUrl: string; accessToken: string; keyChain: KeyChain }
+): Promise<string> {
+  const refs = parseAttachmentRefs(safeMail[MAIL_ATTR_ATTACHMENTS]);
+  if (refs.length === 0) return "";
+  const byListId = new Map<string, string[]>();
+  for (const [lid, eid] of refs) {
+    const list = byListId.get(lid) ?? [];
+    list.push(eid);
+    byListId.set(lid, list);
+  }
+  const refOrder = refs.map(([l, e]) => `${l}/${e}`);
+  const fileByRef = new Map<string, ServerInstance>();
+  for (const [lid, eids] of byListId) {
+    const files = await loadMultiple<ServerInstance>(ctx.baseUrl, FILE, lid, eids, {
+      accessToken: ctx.accessToken,
+    });
+    for (let j = 0; j < eids.length; j++) {
+      const ref = `${lid}/${eids[j]}`;
+      if (files[j] != null) fileByRef.set(ref, sanitizeServerInstance(files[j] as ServerInstance));
+    }
+  }
+  const names: string[] = [];
+  for (const ref of refOrder) {
+    const fileRaw = fileByRef.get(ref);
+    if (fileRaw == null) continue;
+    const fileSk = resolveSessionKey(ctx.keyChain, fileRaw, FILE);
+    const decryptedFile = decryptParsedInstance(FILE, fileRaw, fileSk ?? null) as ServerInstance;
+    const name = String(decryptedFile[FILE_ATTR_NAME] ?? "").trim();
+    names.push(name || "(no name)");
+  }
+  return names.join(", ");
 }
 
 /** Sanitize filename for filesystem: strip path, replace unsafe chars. */

@@ -118,7 +118,7 @@ Options:
 
 ### `envelope list [folder]`
 
-Lists the latest N envelopes (message headers) in a folder. **Folder is optional and defaults to Inbox** when omitted; use a folder id or folder name from `folders list` (e.g. `L2eum1h-1k-0` or `Inbox`, `Sent`) to list another folder. For each envelope, shows subject, date, from, unread flag, and attachment count. Unread items are prefixed with `*` in human-readable output. Also available as `messages list`.
+Lists the latest N envelopes (message headers) in a folder. **Folder is optional and defaults to Inbox** when omitted; use a folder id or folder name from `folders list` (e.g. `L2eum1h-1k-0` or `Inbox`, `Sent`) to list another folder. For each envelope, shows subject, date, from, unread flag, and attachment count. Unread items are prefixed with `*` in human-readable output. With `--format tsv` or `--format json`, various additional columns are included. Also available as `messages list`.
 
 ```bash
 node dist/cli.js envelope list
@@ -136,7 +136,7 @@ Options:
 
 ### `message read <mail-id> [other-ids...]`
 
-Reads one or more full messages (headers and body) by mail-id. Also available as `msg read`. The **mail-id** is the same format as the `id` field in `envelope list --format json` (e.g. `listId/elementId`). Run `envelope list --format json` to get mail ids, then pass them to `message read`. Output is human-friendly by default: From, Subject, Date, then a blank line, then the body (HTML is converted to plain text for pretty output). Draft messages are not supported.
+Reads one or more full messages (headers and body) by mail-id. Also available as `msg read`. The **mail-id** is the same format as the `id` field in `envelope list --format json` (e.g. `listId/elementId`). Run `envelope list --format json` to get mail ids, then pass them to `message read`. Output is human-friendly by default: From, Subject, Date, **Attachment(s)** (comma-separated filenames, or "(none)"), then a blank line, then the body (HTML is converted to plain text for pretty output). The Attachment(s) field is included in all formats (pretty, tsv, json). Draft messages are not supported.
 
 ```bash
 npm start -- envelope list --format json -c 5
@@ -148,7 +148,7 @@ npm start -- message read id1 id2 id3
 Options:
 
 - `--verbose`, `-v` – Verbose logging for debugging.
-- Use global `--format json` for JSON (each message as object with `id`, `from`, `subject`, `date`, `body`).
+- Use global `--format json` for JSON (each message as object with `id`, `from`, `subject`, `date`, `attachments`, `body`).
 
 ### `message attachment <mail-id>`
 

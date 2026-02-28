@@ -14,11 +14,11 @@ import * as context from "../context.js";
 import * as optsHelpers from "../opts.js";
 import * as output from "../output.js";
 import { loadMailBody } from "../loadMailBody.js";
-import { runAttachmentDownload } from "../loadAttachments.js";
+import { getAttachmentNamesForMail, runAttachmentDownload } from "../loadAttachments.js";
 import { exportOneMessageToPath } from "../exportMessage.js";
 import { htmlToPlainText } from "../../utils/htmlToPlainText.js";
 import { parseMailId } from "../mailId.js";
-import { getSenderFromMail, toDateStr } from "../mailUtils.js";
+import { formatDateWithTimezone, getSenderFromMail, toDateStr } from "../mailUtils.js";
 
 export { parseMailId };
 
@@ -36,6 +36,7 @@ export interface MessageReadResult {
   bcc?: string;
   subject: string;
   date: string | null;
+  attachments: string;
   bodyText: string;
   bodyTextPlain?: string;
 }
@@ -118,6 +119,11 @@ export async function runMessageRead(
       const date = toDateStr(decryptedMail["107"]);
       const idForOutput = listId + "/" + elementId;
       const bodyPlain = htmlToPlainText(bodyText);
+      const attachments = await getAttachmentNamesForMail(safeMail, {
+        baseUrl,
+        accessToken: result.accessToken,
+        keyChain,
+      });
 
       results.push({
         id: idForOutput,
@@ -127,6 +133,7 @@ export async function runMessageRead(
         bcc: bcc ?? "",
         subject,
         date,
+        attachments,
         bodyText,
         bodyTextPlain: bodyPlain,
       });
@@ -141,11 +148,12 @@ export async function runMessageRead(
         bcc: r.bcc,
         subject: r.subject,
         date: r.date,
+        attachments: r.attachments,
         body: r.bodyText,
       }));
       console.log(JSON.stringify(results.length === 1 ? out[0] : out));
     } else if (plainFormat === "tsv") {
-      const header = ["Id", "From", "To", "Cc", "Bcc", "Subject", "Date", "Body"];
+      const header = ["Id", "From", "To", "Cc", "Bcc", "Subject", "Date", "Attachment(s)", "Body"];
       const bodyPlain = (r: (typeof results)[0]) =>
         (r.bodyTextPlain ?? htmlToPlainText(r.bodyText)).replace(/\n/g, " ").replace(/\t/g, " ");
       const dataRows = results.map((r) => [
@@ -156,6 +164,7 @@ export async function runMessageRead(
         r.bcc ?? "",
         r.subject.replace(/\t|\n/g, " "),
         r.date ?? "",
+        (r.attachments ?? "").replace(/\r\n|\r|\n/g, " ").trim(),
         bodyPlain(r),
       ]);
       output.printTable([header, ...dataRows], "tsv");
@@ -167,7 +176,8 @@ export async function runMessageRead(
         if (r.cc) console.log("Cc: " + r.cc);
         if (r.bcc) console.log("Bcc: " + r.bcc);
         console.log("Subject: " + r.subject);
-        console.log("Date: " + (r.date ?? ""));
+        console.log("Date: " + formatDateWithTimezone(r.date));
+        console.log("Attachment(s): " + (r.attachments || "(none)"));
         console.log("");
         console.log(r.bodyTextPlain ?? htmlToPlainText(r.bodyText));
         if (i < results.length - 1) console.log("\n----------\n");
