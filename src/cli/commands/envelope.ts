@@ -10,13 +10,13 @@ import {
   type ServerInstance,
 } from "../../crypto/decryptInstance.js";
 import { resolveMailSessionKeyWithFormerRetry } from "../../crypto/resolveMailSessionKey.js";
-import { MAIL_SET, MAIL_SET_ENTRY, MAIL, MAIL_ADDRESS, FILE, FILE_ATTR_NAME } from "../../crypto/typeModels.js";
-import { loadEntity, loadMultiple, loadRange, GENERATED_MAX_ID } from "../../rest.js";
+import { MAIL_SET, MAIL_SET_ENTRY, MAIL, MAIL_ADDRESS } from "../../crypto/typeModels.js";
+import { loadEntity, loadRange, GENERATED_MAX_ID } from "../../rest.js";
 import { unwrapSingleElementArray } from "../../utils/bytes.js";
 import { elementIdFromEntry, mailIdFromMailSetEntry } from "../../utils/ids.js";
 import * as context from "../context.js";
 import { loadMailBody } from "../loadMailBody.js";
-import { parseAttachmentRefs } from "../loadAttachments.js";
+import { getAttachmentNamesForMail, parseAttachmentRefs } from "../loadAttachments.js";
 import * as optsHelpers from "../opts.js";
 import * as output from "../output.js";
 import { toDateStr, formatDateForPretty } from "../mailUtils.js";
@@ -108,6 +108,35 @@ export function resolveFolderByIdOrName(
   return { error: "not_found" };
 }
 
+/**
+ * Resolve folder by id or name, or print error and exit.
+ * Returns folder with non-null entriesListId (exits if not found, multiple match, or no entries list).
+ */
+export function resolveFolderOrExit(
+  folderEntries: FolderEntry[],
+  folderIdOrName: string
+): FolderEntry & { entriesListId: string } {
+  const resolved = resolveFolderByIdOrName(folderEntries, folderIdOrName);
+  if ("error" in resolved) {
+    if (resolved.error === "multiple_match") {
+      console.error("Error: Multiple folders match that name; use a folder id (run 'folders list').");
+      process.exit(1);
+    }
+    if (folderIdOrName === "") {
+      console.error("Error: Inbox folder not found.");
+    } else {
+      console.error("Error: Folder not found:", folderIdOrName, "(run 'folders list' to see folder ids and names)");
+    }
+    process.exit(1);
+  }
+  const folder = resolved.folder;
+  if (folder.entriesListId == null) {
+    console.error("Error: Folder has no entries list.");
+    process.exit(1);
+  }
+  return folder as FolderEntry & { entriesListId: string };
+}
+
 /** Max width for Subject column in envelope list (pretty table). Used for both data truncation and table colMaxWidths. */
 const ENVELOPE_LIST_SUBJECT_MAX_WIDTH = 100;
 
@@ -155,25 +184,8 @@ export async function runEnvelopeList(
 
     const folderEntries = await loadFolderEntries({ keyChain, mailGroupId, mailSetRawList });
 
-    const resolved = resolveFolderByIdOrName(folderEntries, folderIdTrimmed);
-    if ("error" in resolved) {
-      if (resolved.error === "multiple_match") {
-        console.error("Error: Multiple folders match that name; use a folder id (run 'folders list').");
-        process.exit(1);
-      }
-      if (folderIdTrimmed === "") {
-        console.error("Error: Inbox folder not found.");
-      } else {
-        console.error("Error: Folder not found:", folderIdTrimmed, "(run 'folders list' to see folder ids and names)");
-      }
-      process.exit(1);
-    }
-    const folder = resolved.folder;
+    const folder = resolveFolderOrExit(folderEntries, folderIdTrimmed);
     const entriesListId = folder.entriesListId;
-    if (entriesListId == null) {
-      console.error("Error: Folder has no entries list.");
-      process.exit(1);
-    }
 
     const startId = options.cursor != null && options.cursor.trim() !== "" ? options.cursor.trim() : GENERATED_MAX_ID;
     const mailSetEntryList = await loadRange<Record<string, unknown>>(
@@ -311,36 +323,14 @@ export async function runEnvelopeList(
           }
         }
 
-        let attachmentNames = "";
-        if (needAttachmentNames && attachmentRefs.length > 0) {
-          const byListId = new Map<string, string[]>();
-          for (const [lid, eid] of attachmentRefs) {
-            const list = byListId.get(lid) ?? [];
-            list.push(eid);
-            byListId.set(lid, list);
-          }
-          const refOrder = attachmentRefs.map(([l, e]) => `${l}/${e}`);
-          const fileByRef = new Map<string, ServerInstance>();
-          for (const [lid, eids] of byListId) {
-            const files = await loadMultiple<ServerInstance>(baseUrl, FILE, lid, eids, {
-              accessToken: result.accessToken,
-            });
-            for (let j = 0; j < eids.length; j++) {
-              const ref = `${lid}/${eids[j]}`;
-              if (files[j] != null) fileByRef.set(ref, files[j]);
-            }
-          }
-          const names: string[] = [];
-          for (const ref of refOrder) {
-            const fileRaw = fileByRef.get(ref);
-            if (fileRaw == null) continue;
-            const fileSk = resolveSessionKey(keyChain, sanitizeServerInstance(fileRaw as ServerInstance), FILE);
-            const decryptedFile = decryptParsedInstance(FILE, sanitizeServerInstance(fileRaw as ServerInstance), fileSk ?? null) as ServerInstance;
-            const name = String(decryptedFile[FILE_ATTR_NAME] ?? "").trim();
-            names.push(name || "(no name)");
-          }
-          attachmentNames = names.join(", ");
-        }
+        const attachmentNames =
+          needAttachmentNames && attachmentRefs.length > 0
+            ? await getAttachmentNamesForMail(safeMail, {
+                baseUrl,
+                accessToken: result.accessToken,
+                keyChain,
+              })
+            : "";
 
         return {
           id: idForJson,

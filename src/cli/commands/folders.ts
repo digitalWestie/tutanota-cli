@@ -11,7 +11,7 @@ import { elementIdFromEntry, mailIdFromMailSetEntry } from "../../utils/ids.js";
 import * as context from "../context.js";
 import * as optsHelpers from "../opts.js";
 import * as output from "../output.js";
-import { loadFolderEntries, resolveFolderByIdOrName } from "./envelope.js";
+import { loadFolderEntries, resolveFolderOrExit } from "./envelope.js";
 import { exportOneMessageToPath } from "../exportMessage.js";
 
 const SYSTEM_FOLDER_DISPLAY_NAMES: Record<string, string> = {
@@ -189,26 +189,8 @@ export function registerFoldersCommands(
           });
 
           const folderEntries = await loadFolderEntries({ keyChain, mailGroupId, mailSetRawList });
-          const resolved = resolveFolderByIdOrName(folderEntries, folderArg?.trim());
-
-          if ("error" in resolved) {
-            if (resolved.error === "multiple_match") {
-              console.error("Error: Multiple folders match that name; use a folder id (run 'folders list').");
-              process.exit(1);
-            }
-            if ((folderArg ?? "").trim() === "") {
-              console.error("Error: Inbox folder not found.");
-            } else {
-              console.error("Error: Folder not found:", folderArg, "(run 'folders list' to see folder ids and names)");
-            }
-            process.exit(1);
-          }
-          const folder = resolved.folder;
+          const folder = resolveFolderOrExit(folderEntries, (folderArg ?? "").trim());
           const entriesListId = folder.entriesListId;
-          if (entriesListId == null) {
-            console.error("Error: Folder has no entries list.");
-            process.exit(1);
-          }
 
           fs.mkdirSync(outDir, { recursive: true });
 

@@ -4,6 +4,8 @@
 
 **This tool is in early stages of development — use at your own risk; behaviour and APIs may change.**
 
+**Disclosure: This tool has been developed with LLM assistance.**
+
 A CLI to authenticate with [Tutanota](https://tuta.com), list mail folders, list envelopes (message headers) in a folder, read full messages, and export mail to EML files.
 
 This CLI was developed based on the official client repository [tutao/tutanota](https://github.com/tutao/tutanota) at version 327.260210.0, commit 6b43e845bc18b17dc3b047d186a8490129887911.

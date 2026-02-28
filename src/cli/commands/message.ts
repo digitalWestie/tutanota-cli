@@ -9,7 +9,6 @@ import {
 import { resolveMailSessionKeyWithFormerRetry } from "../../crypto/resolveMailSessionKey.js";
 import { MAIL } from "../../crypto/typeModels.js";
 import { loadEntity, loadRange } from "../../rest.js";
-import { unwrapSingleElementArray } from "../../utils/bytes.js";
 import * as context from "../context.js";
 import * as optsHelpers from "../opts.js";
 import * as output from "../output.js";
