@@ -47,6 +47,9 @@ export interface MessageReadOptions {
 export interface MessageReadResult {
   id: string;
   from: string;
+  to?: string;
+  cc?: string;
+  bcc?: string;
   subject: string;
   date: string | null;
   bodyText: string;
@@ -114,7 +117,7 @@ export async function runMessageRead(
         log(`Mail decrypted: mailDetails (1308) present=${decHas1308}`);
       }
 
-      const { bodyText } = await loadMailBody({
+      const { bodyText, to, cc, bcc } = await loadMailBody({
         baseUrl,
         accessToken: result.accessToken,
         decryptedMail,
@@ -138,6 +141,9 @@ export async function runMessageRead(
       results.push({
         id: idForOutput,
         from,
+        to: to ?? "",
+        cc: cc ?? "",
+        bcc: bcc ?? "",
         subject,
         date,
         bodyText,
@@ -149,18 +155,24 @@ export async function runMessageRead(
       const out = results.map((r) => ({
         id: r.id,
         from: r.from,
+        to: r.to,
+        cc: r.cc,
+        bcc: r.bcc,
         subject: r.subject,
         date: r.date,
         body: r.bodyText,
       }));
       console.log(JSON.stringify(results.length === 1 ? out[0] : out));
     } else if (plainFormat === "tsv") {
-      const header = ["Id", "From", "Subject", "Date", "Body"];
+      const header = ["Id", "From", "To", "Cc", "Bcc", "Subject", "Date", "Body"];
       const bodyPlain = (r: (typeof results)[0]) =>
         (r.bodyTextPlain ?? htmlToPlainText(r.bodyText)).replace(/\n/g, " ").replace(/\t/g, " ");
       const dataRows = results.map((r) => [
         r.id,
         r.from,
+        r.to ?? "",
+        r.cc ?? "",
+        r.bcc ?? "",
         r.subject.replace(/\t|\n/g, " "),
         r.date ?? "",
         bodyPlain(r),
@@ -170,6 +182,9 @@ export async function runMessageRead(
       for (let i = 0; i < results.length; i++) {
         const r = results[i];
         console.log("From: " + r.from);
+        if (r.to) console.log("To: " + r.to);
+        if (r.cc) console.log("Cc: " + r.cc);
+        if (r.bcc) console.log("Bcc: " + r.bcc);
         console.log("Subject: " + r.subject);
         console.log("Date: " + (r.date ?? ""));
         console.log("");

@@ -11,13 +11,19 @@ import { resolveMailSessionKeyWithFormerRetry } from "../crypto/resolveMailSessi
 import type { ServerInstance } from "../crypto/decryptInstance.js";
 import {
   MAIL,
+  MAIL_ADDRESS,
   MAIL_DETAILS_BLOB_ATTR_DETAILS,
   MAIL_DETAILS_ATTR_BODY,
+  MAIL_DETAILS_ATTR_RECIPIENTS,
+  RECIPIENTS_ATTR_TO,
+  RECIPIENTS_ATTR_CC,
+  RECIPIENTS_ATTR_BCC,
   BODY_ATTR_TEXT,
   BODY_ATTR_COMPRESSED_TEXT,
   MAIL_ATTR_MAIL_DETAILS,
   MAIL_ATTR_MAIL_DETAILS_DRAFT,
 } from "../crypto/typeModels.js";
+import { decryptParsedInstance } from "../crypto/decryptInstance.js";
 import { isVerbose, log } from "../logger.js";
 import { loadMailDetailsBlobFromBlobServer } from "../rest.js";
 import { requestBlobReadTokenArchive } from "../blobToken.js";
@@ -58,8 +64,37 @@ function decryptBodyField(
 
 export interface MailDetailsResult {
   bodyText: string;
+  /** RFC 5322-style To header (comma-separated addresses). */
+  to?: string;
+  /** RFC 5322-style Cc header (comma-separated addresses). */
+  cc?: string;
+  /** RFC 5322-style Bcc header (comma-separated addresses). */
+  bcc?: string;
   /** Optional: sentDate (1284), recipients (1286), etc. for headers. */
   details?: ServerInstance;
+}
+
+/** Format MailAddress array to string. */
+function formatMailAddresses(
+  addrList: unknown[],
+  sessionKey: AesKey | null
+): string {
+  if (addrList.length === 0) return "";
+  return addrList
+    .map((raw) => {
+      if (raw == null || typeof raw !== "object") return "";
+      const dec = decryptParsedInstance(
+        MAIL_ADDRESS,
+        raw as ServerInstance,
+        sessionKey
+      ) as Record<string, unknown>;
+      const name = String(dec["94"] ?? "").trim();
+      const address = String(dec["95"] ?? (raw as Record<string, unknown>)["95"] ?? "").trim();
+      if (!address) return "";
+      return name ? `${name} <${address}>` : address;
+    })
+    .filter(Boolean)
+    .join(", ");
 }
 
 /**
@@ -160,5 +195,36 @@ export async function loadMailBody(options: {
 
   const bodyText = compressedText !== "" ? compressedText : text;
 
-  return { bodyText, details: firstDetails };
+  const recipientsRaw = firstDetails[MAIL_DETAILS_ATTR_RECIPIENTS];
+  const recipients = unwrapSingleElementArray(recipientsRaw) ?? recipientsRaw;
+  const recipientsObj =
+    recipients != null && typeof recipients === "object"
+      ? (recipients as Record<string, unknown>)
+      : null;
+
+  let to = "";
+  let cc = "";
+  let bcc = "";
+  if (recipientsObj != null) {
+    const toList = Array.isArray(recipientsObj[RECIPIENTS_ATTR_TO])
+      ? (recipientsObj[RECIPIENTS_ATTR_TO] as unknown[])
+      : recipientsObj[RECIPIENTS_ATTR_TO] != null
+        ? [recipientsObj[RECIPIENTS_ATTR_TO]]
+        : [];
+    const ccList = Array.isArray(recipientsObj[RECIPIENTS_ATTR_CC])
+      ? (recipientsObj[RECIPIENTS_ATTR_CC] as unknown[])
+      : recipientsObj[RECIPIENTS_ATTR_CC] != null
+        ? [recipientsObj[RECIPIENTS_ATTR_CC]]
+        : [];
+    const bccList = Array.isArray(recipientsObj[RECIPIENTS_ATTR_BCC])
+      ? (recipientsObj[RECIPIENTS_ATTR_BCC] as unknown[])
+      : recipientsObj[RECIPIENTS_ATTR_BCC] != null
+        ? [recipientsObj[RECIPIENTS_ATTR_BCC]]
+        : [];
+    to = formatMailAddresses(toList, sessionKey);
+    cc = formatMailAddresses(ccList, sessionKey);
+    bcc = formatMailAddresses(bccList, sessionKey);
+  }
+
+  return { bodyText, to, cc, bcc, details: firstDetails };
 }

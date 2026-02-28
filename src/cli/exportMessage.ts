@@ -89,7 +89,7 @@ export async function exportOneMessageToPath(
   );
   const decryptedMail = decryptParsedInstance(MAIL, safeMail, mailSk ?? null) as ServerInstance;
 
-  const { bodyText } = await loadMailBody({
+  const { bodyText, to, cc, bcc } = await loadMailBody({
     baseUrl: context.baseUrl,
     accessToken: context.accessToken,
     decryptedMail,
@@ -125,6 +125,9 @@ export async function exportOneMessageToPath(
     subject,
     date,
     bodyText,
+    to,
+    cc,
+    bcc,
   });
 
   const dir = path.dirname(resolvedPath);

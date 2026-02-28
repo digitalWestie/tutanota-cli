@@ -232,8 +232,13 @@ export const MAIL_DETAILS_BLOB: TypeModel = {
 /** Attribute ids inside Body aggregate (1273): 1275 = text, 1276 = compressedText (both encrypted). */
 export const BODY_ATTR_TEXT = "1275";
 export const BODY_ATTR_COMPRESSED_TEXT = "1276";
-/** MailDetails aggregate (1282): 1288 = body (aggregation to Body). */
+/** MailDetails aggregate (1282): 1288 = body, 1286 = recipients. */
 export const MAIL_DETAILS_ATTR_BODY = "1288";
+export const MAIL_DETAILS_ATTR_RECIPIENTS = "1286";
+/** Recipients (1277): 1279 = to, 1280 = cc, 1281 = bcc (each aggregation to MailAddress). */
+export const RECIPIENTS_ATTR_TO = "1279";
+export const RECIPIENTS_ATTR_CC = "1280";
+export const RECIPIENTS_ATTR_BCC = "1281";
 /** MailDetailsBlob: 1305 = details (aggregation to MailDetails, array of one). */
 export const MAIL_DETAILS_BLOB_ATTR_DETAILS = "1305";
 

@@ -14,6 +14,7 @@ import { MAIL_SET, MAIL_SET_ENTRY, MAIL, MAIL_ADDRESS } from "../../crypto/typeM
 import { loadEntity, loadRange, GENERATED_MAX_ID } from "../../rest.js";
 import { unwrapSingleElementArray } from "../../utils/bytes.js";
 import * as context from "../context.js";
+import { loadMailBody } from "../loadMailBody.js";
 import { exitCodeForError } from "../exitCodes.js";
 import * as optsHelpers from "../opts.js";
 import * as output from "../output.js";
@@ -153,6 +154,8 @@ export async function runEnvelopeList(
   const count = options.count ?? (options.C != null ? Math.max(1, Math.min(100, options.C)) : 10);
   const onlyUnread = options.unread ?? options.U ?? false;
   const useJson = output.getOutputFormat(getOpts());
+  const plainFormat = output.getPlainFormat(getOpts());
+  const needRecipients = useJson || plainFormat === "tsv";
 
   if (verbose) {
     console.error("[verbose] Running with options:", JSON.stringify(options));
@@ -317,11 +320,42 @@ export async function runEnvelopeList(
         const stateNum = d["108"] != null ? Number(d["108"]) : null;
         const stateLabel =
           stateNum === 0 ? "Draft" : stateNum === 1 ? "Sent" : stateNum === 2 ? "Received" : stateNum === 3 ? "Sending" : "Unknown";
+
+        let toRecipients = "";
+        let ccRecipients = "";
+        let bccRecipients = "";
+        if (needRecipients) {
+          try {
+            const { to, cc, bcc } = await loadMailBody({
+              baseUrl,
+              accessToken: result.accessToken,
+              decryptedMail: mailDec as ServerInstance,
+              rawMail: safeMail,
+              keyChain,
+              mailGroupId,
+              mailMembership,
+              userGroupId,
+              loadEntity,
+              loadRange,
+              listId: listIdForMail,
+              elementId: elementIdForMail,
+            });
+            toRecipients = to ?? "";
+            ccRecipients = cc ?? "";
+            bccRecipients = bcc ?? "";
+          } catch {
+            // mailDetails missing, draft, or decrypt failed - leave empty
+          }
+        }
+
         return {
           id: idForJson,
           subject: String(d["105"] ?? ""),
           senderName: senderName ?? null,
           senderAddress: senderAddress ?? null,
+          to: toRecipients || null,
+          cc: ccRecipients || null,
+          bcc: bccRecipients || null,
           receivedDate: toDateStr(d["107"]) ?? null,
           unread: d["109"] === true || d["109"] === 1 || d["109"] === "1",
           state: stateNum,
@@ -362,6 +396,9 @@ export async function runEnvelopeList(
           "Received Date",
           "Sender Name",
           "Sender Address",
+          "To",
+          "Cc",
+          "Bcc",
           "Unread",
           "Attachment Count",
           "State",
@@ -373,6 +410,9 @@ export async function runEnvelopeList(
           m.receivedDate ?? "",
           (m.senderName ?? "").trim(),
           (m.senderAddress ?? "").trim(),
+          (m.to ?? "").replace(/\r\n|\r|\n/g, " ").trim(),
+          (m.cc ?? "").replace(/\r\n|\r|\n/g, " ").trim(),
+          (m.bcc ?? "").replace(/\r\n|\r|\n/g, " ").trim(),
           String(m.unread),
           String(m.attachmentCount),
           String(m.state ?? ""),
