@@ -23,6 +23,15 @@ import {
 /** Server-side instance: object keyed by numeric attribute id (string keys). */
 export type ServerInstance = Record<string, unknown>;
 
+/** Remove __proto__ from object to prevent prototype pollution. Returns new object if needed. */
+export function sanitizeServerInstance<T extends Record<string, unknown>>(raw: T): T {
+  if (raw == null || typeof raw !== "object") return raw;
+  if ("__proto__" in raw) {
+    return Object.fromEntries(Object.entries(raw).filter(([k]) => k !== "__proto__")) as T;
+  }
+  return raw;
+}
+
 /**
  * Callback after resolving session key: which method worked, or null if all failed.
  */

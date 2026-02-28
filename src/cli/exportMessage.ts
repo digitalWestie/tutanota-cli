@@ -5,31 +5,15 @@
 import * as fs from "fs";
 import * as path from "path";
 import type { KeyChain } from "../crypto/keyChain.js";
-import { decryptParsedInstance, type ServerInstance } from "../crypto/decryptInstance.js";
+import { decryptParsedInstance, sanitizeServerInstance, type ServerInstance } from "../crypto/decryptInstance.js";
 import { resolveMailSessionKeyWithFormerRetry } from "../crypto/resolveMailSessionKey.js";
 import { MAIL } from "../crypto/typeModels.js";
 import { loadEntity, loadRange } from "../rest.js";
-import { unwrapSingleElementArray } from "../utils/bytes.js";
 import { loadMailBody } from "./loadMailBody.js";
 import { runAttachmentDownload } from "./loadAttachments.js";
 import { buildEml, sanitizeEmlFilename } from "./eml.js";
 import { parseMailId } from "./mailId.js";
-
-function getSenderFromMail(decryptedMail: ServerInstance): string {
-  const senderAgg = decryptedMail["111"];
-  const sender = unwrapSingleElementArray(senderAgg);
-  if (sender != null && typeof sender === "object" && "95" in sender) {
-    return String((sender as Record<string, unknown>)["95"] ?? "");
-  }
-  return "";
-}
-
-function toDateStr(v: unknown): string | null {
-  if (v == null) return null;
-  if (v instanceof Date) return v.toISOString();
-  if (typeof v === "number") return new Date(v).toISOString();
-  return String(v);
-}
+import { getSenderFromMail, toDateStr } from "./mailUtils.js";
 
 export interface ExportOneMessageOptions {
   mailId: string;
@@ -69,10 +53,7 @@ export async function exportOneMessageToPath(
   const mailRaw = await loadEntity<ServerInstance>(context.baseUrl, MAIL, [listId, elementId], {
     accessToken: context.accessToken,
   });
-  const safeMail =
-    "__proto__" in mailRaw
-      ? (Object.fromEntries(Object.entries(mailRaw).filter(([k]) => k !== "__proto__")) as ServerInstance)
-      : mailRaw;
+  const safeMail = sanitizeServerInstance(mailRaw);
 
   const mailSk = await resolveMailSessionKeyWithFormerRetry(
     context.baseUrl,

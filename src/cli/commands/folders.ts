@@ -3,13 +3,12 @@ import * as path from "path";
 import type { Command } from "commander";
 import { getApiBaseUrl } from "../../config.js";
 import { getErrorMessage, setVerbose } from "../../logger.js";
-import { clearSession } from "../../session.js";
-import { resolveSessionKey, decryptParsedInstance, type ServerInstance } from "../../crypto/decryptInstance.js";
+import { resolveSessionKey, decryptParsedInstance, sanitizeServerInstance, type ServerInstance } from "../../crypto/decryptInstance.js";
 import { MAIL_SET, MAIL_SET_ENTRY } from "../../crypto/typeModels.js";
 import { loadRange, GENERATED_MAX_ID } from "../../rest.js";
 import { unwrapSingleElementArray } from "../../utils/bytes.js";
+import { elementIdFromEntry, mailIdFromMailSetEntry } from "../../utils/ids.js";
 import * as context from "../context.js";
-import { exitCodeForError } from "../exitCodes.js";
 import * as optsHelpers from "../opts.js";
 import * as output from "../output.js";
 import { loadFolderEntries, resolveFolderByIdOrName } from "./envelope.js";
@@ -73,10 +72,7 @@ export function registerFoldersCommands(
           mailSetRawList,
           FOLDER_LIST_CONCURRENCY,
           async (raw, i) => {
-            const safe =
-              "__proto__" in raw
-                ? (Object.fromEntries(Object.entries(raw).filter(([k]) => k !== "__proto__")) as ServerInstance)
-                : raw;
+            const safe = sanitizeServerInstance(raw as ServerInstance);
             const onSessionKeyResolved =
               verbose && i === 0
                 ? (method: "256" | "128" | "256-legacy" | null) => {
@@ -154,17 +150,7 @@ export function registerFoldersCommands(
           output.printTable(rows, output.getPlainFormat(getOptsWithGlobals()));
         }
       } catch (err) {
-        const message = getErrorMessage(err);
-        if (context.isSessionExpiredOrInvalid(err)) {
-          clearSession();
-          console.error(
-            "Session expired, invalid, or timed out (HTTP 440). Please run 'account check' (or 'auth check') to log in again, then try 'folders list' again."
-          );
-        } else {
-          if (verbose && err instanceof Error && err.stack) console.error("[verbose] stack:", err.stack);
-          console.error("Error:", message);
-        }
-        process.exit(exitCodeForError(err));
+        context.handleCommandError(err, { verbose, commandHint: "folders list" });
       }
     });
 
@@ -239,29 +225,10 @@ export function registerFoldersCommands(
           let totalExported = 0;
           const PAGE_SIZE = 100;
 
-          function mailIdFromEntry(entry: Record<string, unknown>): string {
-            const mailRefRaw = entry["1456"];
-            const mailRef = unwrapSingleElementArray(mailRefRaw);
-            if (Array.isArray(mailRef) && mailRef.length >= 2) {
-              return String(mailRef[0]) + "/" + String(mailRef[1]);
-            }
-            if (Array.isArray(mailRef) && mailRef.length === 1) {
-              return String(mailRef[0]) + "/";
-            }
-            return String(mailRef ?? "");
-          }
-
           function nextCursorFromPage(entries: Record<string, unknown>[]): string | undefined {
             if (entries.length < PAGE_SIZE || entries.length === 0) return undefined;
-            const last = entries[entries.length - 1];
-            const elementIdFrom = (idRaw: unknown): string | undefined => {
-              if (idRaw == null) return undefined;
-              if (Array.isArray(idRaw) && idRaw.length >= 2) return String(idRaw[idRaw.length - 1] ?? "");
-              if (Array.isArray(idRaw) && idRaw.length === 1) return String(idRaw[0] ?? "");
-              const s = String(idRaw);
-              return s === "" ? undefined : s;
-            };
-            return elementIdFrom(last["1452"]) ?? elementIdFrom(last["431"]) ?? elementIdFrom(last["_id"]);
+            const last = entries[entries.length - 1] as Record<string, unknown>;
+            return elementIdFromEntry(last);
           }
 
           while (true) {
@@ -278,7 +245,7 @@ export function registerFoldersCommands(
               }
             );
 
-            const mailIds = mailSetEntryList.map((e) => mailIdFromEntry(e));
+            const mailIds = mailSetEntryList.map((e) => mailIdFromMailSetEntry(e as Record<string, unknown>));
             await context.mapWithConcurrency(mailIds, concurrency, async (mailId) => {
               await exportOneMessageToPath({
                 mailId,
@@ -296,15 +263,7 @@ export function registerFoldersCommands(
 
           console.error("Exported", totalExported, "messages to", outDir);
         } catch (err) {
-          const message = getErrorMessage(err);
-          if (context.isSessionExpiredOrInvalid(err)) {
-            clearSession();
-            console.error("Session expired or invalid. Run 'account check' to log in again.");
-          } else {
-            if (verbose && err instanceof Error && err.stack) console.error("[verbose] stack:", err.stack);
-            console.error("Error:", message);
-          }
-          process.exit(exitCodeForError(err));
+          context.handleCommandError(err, { verbose });
         }
       }
     );

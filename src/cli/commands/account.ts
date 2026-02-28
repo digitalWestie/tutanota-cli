@@ -200,29 +200,7 @@ export function registerAccountCommands(
           }
         }
       } catch (err) {
-        const message = getErrorMessage(err);
-        if (context.isSessionExpiredOrInvalid(err)) {
-          clearSession();
-          if (useJson) {
-            console.log(JSON.stringify({ error: "Session expired, invalid, or timed out (HTTP 440). Run 'account check' (or 'auth check') to log in again." }));
-          } else {
-            console.error(
-              "Session expired, invalid, or timed out (HTTP 440). Please run 'account check' (or 'auth check') to log in again."
-            );
-          }
-        } else {
-          if (verbose) {
-            console.error("[verbose] account profile failed:", err);
-            if (err instanceof Error && err.cause) console.error("[verbose] cause:", err.cause);
-            if (err instanceof Error && err.stack) console.error("[verbose] stack:", err.stack);
-          }
-          if (useJson) {
-            console.log(JSON.stringify({ error: message }));
-          } else {
-            console.error("Error:", message);
-          }
-        }
-        process.exit(exitCodeForError(err));
+        context.handleCommandError(err, { verbose, useJson });
       }
     });
 }

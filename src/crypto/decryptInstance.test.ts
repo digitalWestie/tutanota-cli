@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import {
   resolveSessionKey,
   decryptParsedInstance,
+  sanitizeServerInstance,
   type ServerInstance,
 } from "./decryptInstance.js";
 import type { KeyChain } from "./keyChain.js";
@@ -17,6 +18,27 @@ function mockKeyChain(getGroupKeyReturn: ReturnType<KeyChain["getGroupKey"]>): K
 }
 
 describe("decryptInstance", () => {
+  describe("sanitizeServerInstance", () => {
+    test("returns object with same data when no __proto__ as own property", () => {
+      const raw = { "105": "subject", "431": "id" };
+      const result = sanitizeServerInstance(raw);
+      assert.deepEqual(result, raw);
+    });
+
+    test("removes __proto__ when present as own property", () => {
+      const raw = Object.fromEntries([["105", "subject"], ["__proto__", { pollute: true }]]) as ServerInstance;
+      const result = sanitizeServerInstance(raw);
+      assert.equal(Object.hasOwn(result, "__proto__"), false);
+      assert.equal(result["105"], "subject");
+    });
+
+    test("returns new object when __proto__ was present", () => {
+      const raw = Object.fromEntries([["105", "subject"], ["__proto__", {}]]) as ServerInstance;
+      const result = sanitizeServerInstance(raw);
+      assert.notEqual(result, raw);
+    });
+  });
+
   describe("resolveSessionKey", () => {
     test("returns null when typeModel.encrypted is false", () => {
       const keyChain = mockKeyChain(null);

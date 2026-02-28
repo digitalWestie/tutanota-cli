@@ -9,6 +9,7 @@ import type { KeyChain } from "../crypto/keyChain.js";
 import {
   resolveSessionKey,
   decryptParsedInstance,
+  sanitizeServerInstance,
   type ServerInstance,
 } from "../crypto/decryptInstance.js";
 import {
@@ -107,10 +108,7 @@ export async function runAttachmentDownload(
   const mailRaw = await loadEntity<ServerInstance>(context.baseUrl, MAIL, [listId, elementId], {
     accessToken: context.accessToken,
   });
-  const safeMail =
-    "__proto__" in mailRaw
-      ? (Object.fromEntries(Object.entries(mailRaw).filter(([k]) => k !== "__proto__")) as ServerInstance)
-      : mailRaw;
+  const safeMail = sanitizeServerInstance(mailRaw);
 
   const attachmentRefs = parseAttachmentRefs(safeMail[MAIL_ATTR_ATTACHMENTS]);
   if (attachmentRefs.length === 0) {

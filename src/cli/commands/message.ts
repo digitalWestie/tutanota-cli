@@ -1,9 +1,9 @@
 import type { Command } from "commander";
 import { getApiBaseUrl } from "../../config.js";
-import { getErrorMessage, isVerbose, log, setVerbose } from "../../logger.js";
-import { clearSession } from "../../session.js";
+import { isVerbose, log, setVerbose } from "../../logger.js";
 import {
   decryptParsedInstance,
+  sanitizeServerInstance,
   type ServerInstance,
 } from "../../crypto/decryptInstance.js";
 import { resolveMailSessionKeyWithFormerRetry } from "../../crypto/resolveMailSessionKey.js";
@@ -11,7 +11,6 @@ import { MAIL } from "../../crypto/typeModels.js";
 import { loadEntity, loadRange } from "../../rest.js";
 import { unwrapSingleElementArray } from "../../utils/bytes.js";
 import * as context from "../context.js";
-import { exitCodeForError } from "../exitCodes.js";
 import * as optsHelpers from "../opts.js";
 import * as output from "../output.js";
 import { loadMailBody } from "../loadMailBody.js";
@@ -19,24 +18,9 @@ import { runAttachmentDownload } from "../loadAttachments.js";
 import { exportOneMessageToPath } from "../exportMessage.js";
 import { htmlToPlainText } from "../../utils/htmlToPlainText.js";
 import { parseMailId } from "../mailId.js";
+import { getSenderFromMail, toDateStr } from "../mailUtils.js";
 
 export { parseMailId };
-
-function getSenderFromMail(decryptedMail: ServerInstance): string {
-  const senderAgg = decryptedMail["111"];
-  const sender = unwrapSingleElementArray(senderAgg);
-  if (sender != null && typeof sender === "object" && "95" in sender) {
-    return String((sender as Record<string, unknown>)["95"] ?? "");
-  }
-  return "";
-}
-
-function toDateStr(v: unknown): string | null {
-  if (v == null) return null;
-  if (v instanceof Date) return v.toISOString();
-  if (typeof v === "number") return new Date(v).toISOString();
-  return String(v);
-}
 
 export interface MessageReadOptions {
   output?: string;
@@ -85,10 +69,7 @@ export async function runMessageRead(
       const mailRaw = await loadEntity<ServerInstance>(baseUrl, MAIL, [listId, elementId], {
         accessToken: result.accessToken,
       });
-      const safeMail =
-        "__proto__" in mailRaw
-          ? (Object.fromEntries(Object.entries(mailRaw).filter(([k]) => k !== "__proto__")) as ServerInstance)
-          : mailRaw;
+      const safeMail = sanitizeServerInstance(mailRaw as ServerInstance);
       if (isVerbose()) {
         const has1308 = safeMail["1308"] != null;
         const has1309 = safeMail["1309"] != null;
@@ -193,15 +174,7 @@ export async function runMessageRead(
       }
     }
   } catch (err) {
-    const message = getErrorMessage(err);
-    if (context.isSessionExpiredOrInvalid(err)) {
-      clearSession();
-      console.error("Session expired or invalid. Run 'account check' to log in again.");
-    } else {
-      if (verbose && err instanceof Error && err.stack) console.error("[verbose] stack:", err.stack);
-      console.error("Error:", message);
-    }
-    process.exit(exitCodeForError(err));
+    context.handleCommandError(err, { verbose });
   }
 }
 
@@ -276,15 +249,7 @@ export function registerMessageCommands(
           });
           console.log("Exported to", writtenPath);
         } catch (err) {
-          const message = getErrorMessage(err);
-          if (context.isSessionExpiredOrInvalid(err)) {
-            clearSession();
-            console.error("Session expired or invalid. Run 'account check' to log in again.");
-          } else {
-            if (verbose && err instanceof Error && err.stack) console.error("[verbose] stack:", err.stack);
-            console.error("Error:", message);
-          }
-          process.exit(exitCodeForError(err));
+          context.handleCommandError(err, { verbose });
         }
       }
     );
@@ -352,15 +317,7 @@ export function registerMessageCommands(
             }
           }
         } catch (err) {
-          const message = getErrorMessage(err);
-          if (context.isSessionExpiredOrInvalid(err)) {
-            clearSession();
-            console.error("Session expired or invalid. Run 'account check' to log in again.");
-          } else {
-            if (verbose && err instanceof Error && err.stack) console.error("[verbose] stack:", err.stack);
-            console.error("Error:", message);
-          }
-          process.exit(exitCodeForError(err));
+          context.handleCommandError(err, { verbose });
         }
       }
     );

@@ -16,6 +16,7 @@ import { clearSession, readSession, writeSession } from "../session.js";
 import type { AesKey } from "../auth/kdf.js";
 import type { LoadMailboxResult } from "./mailbox.js";
 import { loadMailboxAndMailSetList } from "./mailbox.js";
+import { exitCodeForError } from "./exitCodes.js";
 
 /** True if the error indicates an expired, invalid, or timed-out session (e.g. HTTP 401 or 440). */
 export function isSessionExpiredOrInvalid(err: unknown): boolean {
@@ -154,4 +155,49 @@ export async function getSessionUserAndMailbox(options: {
     userRaw,
     verbose,
   });
+}
+
+const SESSION_EXPIRED_BASE =
+  "Session expired, invalid, or timed out (HTTP 440). Please run 'account check' (or 'auth check') to log in again.";
+const SESSION_EXPIRED_JSON =
+  "Session expired, invalid, or timed out (HTTP 440). Run 'account check' (or 'auth check') to log in again.";
+
+export interface HandleCommandErrorOptions {
+  verbose?: boolean;
+  useJson?: boolean;
+  /** Optional hint appended to session-expired message, e.g. "envelope list" or "folders list". */
+  commandHint?: string;
+}
+
+/**
+ * Handle command errors: clear session if expired, output message, exit with appropriate code.
+ * Use in catch blocks for commands that use session/mailbox.
+ */
+export function handleCommandError(
+  err: unknown,
+  options: HandleCommandErrorOptions = {}
+): never {
+  const { verbose = false, useJson = false, commandHint } = options;
+  const message = getErrorMessage(err);
+
+  if (isSessionExpiredOrInvalid(err)) {
+    clearSession();
+    if (useJson) {
+      console.log(JSON.stringify({ error: SESSION_EXPIRED_JSON }));
+    } else {
+      const suffix = commandHint != null ? `, then try '${commandHint}' again.` : ".";
+      console.error(SESSION_EXPIRED_BASE + suffix);
+    }
+  } else {
+    if (verbose && err instanceof Error && err.stack) {
+      console.error("[verbose] stack:", err.stack);
+    }
+    if (useJson) {
+      console.log(JSON.stringify({ error: message }));
+    } else {
+      console.error("Error:", message);
+    }
+  }
+
+  process.exit(exitCodeForError(err));
 }

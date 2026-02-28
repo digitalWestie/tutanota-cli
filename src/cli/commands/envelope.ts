@@ -2,22 +2,23 @@ import type { Command } from "commander";
 import type { KeyChain } from "../../crypto/keyChain.js";
 import kleur from "kleur";
 import { getApiBaseUrl } from "../../config.js";
-import { getErrorMessage, isVerbose, log, setVerbose } from "../../logger.js";
-import { clearSession } from "../../session.js";
+import { isVerbose, log, setVerbose } from "../../logger.js";
 import {
   resolveSessionKey,
   decryptParsedInstance,
+  sanitizeServerInstance,
   type ServerInstance,
 } from "../../crypto/decryptInstance.js";
 import { resolveMailSessionKeyWithFormerRetry } from "../../crypto/resolveMailSessionKey.js";
 import { MAIL_SET, MAIL_SET_ENTRY, MAIL, MAIL_ADDRESS } from "../../crypto/typeModels.js";
 import { loadEntity, loadRange, GENERATED_MAX_ID } from "../../rest.js";
 import { unwrapSingleElementArray } from "../../utils/bytes.js";
+import { elementIdFromEntry, mailIdFromMailSetEntry } from "../../utils/ids.js";
 import * as context from "../context.js";
 import { loadMailBody } from "../loadMailBody.js";
-import { exitCodeForError } from "../exitCodes.js";
 import * as optsHelpers from "../opts.js";
 import * as output from "../output.js";
+import { toDateStr, formatDateForPretty } from "../mailUtils.js";
 import * as mailbox from "../mailbox.js";
 import { getFolderDisplayName } from "./folders.js";
 
@@ -45,10 +46,7 @@ export async function loadFolderEntries(options: {
     mailSetRawList,
     FOLDER_LIST_CONCURRENCY,
     async (raw) => {
-      const safe =
-        "__proto__" in raw
-          ? (Object.fromEntries(Object.entries(raw).filter(([k]) => k !== "__proto__")) as ServerInstance)
-          : raw;
+      const safe = sanitizeServerInstance(raw as ServerInstance);
       const instanceVersion = String((safe["1399"] ?? "") as string);
       const versionsToTry =
         availableVersions.length <= 1
@@ -114,24 +112,6 @@ const ENVELOPE_LIST_SUBJECT_MAX_WIDTH = 100;
 
 /** Max width for From column in pretty envelope list. */
 const ENVELOPE_LIST_FROM_MAX_WIDTH = 40;
-
-/** Format an ISO date string or timestamp for pretty table: "YYYY-MM-DD HH:mm" in local time. */
-function formatDateForPretty(isoOrNull: string | number | null): string {
-  if (isoOrNull == null || isoOrNull === "") return "";
-  const parsed =
-    typeof isoOrNull === "number"
-      ? new Date(isoOrNull)
-      : /^\d+$/.test(String(isoOrNull))
-        ? new Date(Number(isoOrNull))
-        : new Date(isoOrNull);
-  if (Number.isNaN(parsed.getTime())) return String(isoOrNull);
-  const y = parsed.getFullYear();
-  const mo = String(parsed.getMonth() + 1).padStart(2, "0");
-  const day = String(parsed.getDate()).padStart(2, "0");
-  const h = String(parsed.getHours()).padStart(2, "0");
-  const min = String(parsed.getMinutes()).padStart(2, "0");
-  return `${y}-${mo}-${day} ${h}:${min}`;
-}
 
 export interface EnvelopeListOptions {
   output?: string;
@@ -209,14 +189,7 @@ export async function runEnvelopeList(
     let nextCursor: string | undefined;
     if (mailSetEntryList.length === count && mailSetEntryList.length > 0) {
       const lastEntry = mailSetEntryList[mailSetEntryList.length - 1] as Record<string, unknown>;
-      const elementIdFrom = (idRaw: unknown): string | undefined => {
-        if (idRaw == null) return undefined;
-        if (Array.isArray(idRaw) && idRaw.length >= 2) return String(idRaw[idRaw.length - 1] ?? "");
-        if (Array.isArray(idRaw) && idRaw.length === 1) return String(idRaw[0] ?? "");
-        const s = String(idRaw);
-        return s === "" ? undefined : s;
-      };
-      nextCursor = elementIdFrom(lastEntry["1452"]) ?? elementIdFrom(lastEntry["431"]) ?? elementIdFrom(lastEntry["_id"]);
+      nextCursor = elementIdFromEntry(lastEntry);
     }
 
     const MAIL_LOAD_CONCURRENCY = 5;
@@ -224,23 +197,18 @@ export async function runEnvelopeList(
       mailSetEntryList,
       MAIL_LOAD_CONCURRENCY,
       async (entry) => {
-        const mailRefRaw = entry["1456"];
-        const mailRef = unwrapSingleElementArray(mailRefRaw);
+        const mailIdStr = mailIdFromMailSetEntry(entry as Record<string, unknown>);
         let mailId: string | [string, string];
-        if (Array.isArray(mailRef) && mailRef.length >= 2) {
-          mailId = [String(mailRef[0]), String(mailRef[1])];
-        } else if (Array.isArray(mailRef) && mailRef.length === 1) {
-          mailId = [String(mailRef[0]), ""];
+        if (mailIdStr.includes("/")) {
+          const [lid, eid] = mailIdStr.split("/");
+          mailId = [lid ?? "", eid ?? ""];
         } else {
-          mailId = String(mailRef ?? "");
+          mailId = mailIdStr;
         }
         const mailRaw = await loadEntity<ServerInstance>(baseUrl, MAIL, mailId, {
           accessToken: result.accessToken,
         });
-        const safeMail =
-          "__proto__" in mailRaw
-            ? (Object.fromEntries(Object.entries(mailRaw).filter(([k]) => k !== "__proto__")) as ServerInstance)
-            : mailRaw;
+        const safeMail = sanitizeServerInstance(mailRaw as ServerInstance);
         const attachments115 = safeMail["115"];
         const attachmentCount = Array.isArray(attachments115) ? attachments115.length : 0;
         const listIdForMail = Array.isArray(mailId) ? String(mailId[0]) : undefined;
@@ -267,14 +235,6 @@ export async function runEnvelopeList(
         }
         const mailDec = decryptParsedInstance(MAIL, safeMail, mailSk ?? null);
         const d = mailDec as ServerInstance;
-        const toDateStr = (v: unknown): string | null => {
-          if (v == null) return null;
-          if (v instanceof Date) return v.toISOString();
-          if (typeof v === "number") return new Date(v).toISOString();
-          const s = String(v);
-          if (/^\d+$/.test(s)) return new Date(Number(s)).toISOString();
-          return s;
-        };
         const senderAgg = mailRaw["111"];
         const sender = unwrapSingleElementArray(senderAgg);
         let senderName: string | null = null;
@@ -459,17 +419,7 @@ export async function runEnvelopeList(
       }
     }
   } catch (err) {
-    const message = getErrorMessage(err);
-    if (context.isSessionExpiredOrInvalid(err)) {
-      clearSession();
-      console.error(
-        "Session expired, invalid, or timed out (HTTP 440). Please run 'account check' (or 'auth check') to log in again, then try 'envelope list' again."
-      );
-    } else {
-      if (verbose && err instanceof Error && err.stack) console.error("[verbose] stack:", err.stack);
-      console.error("Error:", message);
-    }
-    process.exit(exitCodeForError(err));
+    context.handleCommandError(err, { verbose, commandHint: "envelope list" });
   }
 }
 
